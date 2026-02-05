@@ -2215,13 +2215,13 @@ async notifyMiniAppReady() {
         // Pick icon/name for modal
         let icon, name;
         if (category === 'blade') {
-            icon = '⚔️';
+            icon = '✕';
             name = `All Blades (${items.length})`;
         } else if (category === 'bg') {
-            icon = '🎨';
+            icon = '◐';
             name = `All Backgrounds (${items.length})`;
         } else {
-            icon = '🛒';
+            icon = '∞';
             name = `Everything (${items.length} items)`;
         }
         
