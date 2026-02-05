@@ -31,6 +31,8 @@ export default function Home() {
 
   return (
     <>
+      {/* Base Account SDK for payments */}
+      <Script src="/base-account.min.js" strategy="beforeInteractive" />
       {/* Game Engine Script */}
       <Script src="/game-engine.js" strategy="afterInteractive" />
 
