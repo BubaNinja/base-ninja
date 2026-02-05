@@ -1,0 +1,26 @@
+{
+  "accountAssociation": {
+    "header": "REPLACE_AFTER_SIGNING_AT_BASE_DEV",
+    "payload": "REPLACE_AFTER_SIGNING_AT_BASE_DEV",
+    "signature": "REPLACE_AFTER_SIGNING_AT_BASE_DEV"
+  },
+  "miniapp": {
+    "version": "0.0.1",
+    "name": "Base Ninja",
+    "homeUrl": "https://YOUR_DOMAIN",
+    "iconUrl": "https://YOUR_DOMAIN/images/icon.png",
+    "splashImageUrl": "https://YOUR_DOMAIN/images/splash.png",
+    "splashBackgroundColor": "#0a0a1a",
+    "webhookUrl": "https://YOUR_DOMAIN/api/webhook",
+    "subtitle": "Slice the Onchain",
+    "description": "Crypto fruit ninja game on Base. Slice coins, avoid bombs, unlock unique blades and backgrounds!",
+    "screenshotUrls": [],
+    "primaryCategory": "games",
+    "tags": ["game", "crypto", "base", "arcade", "ninja"],
+    "heroImageUrl": "https://YOUR_DOMAIN/images/hero.png",
+    "ogTitle": "Base Ninja - Slice the Onchain",
+    "ogDescription": "Crypto fruit ninja game on Base.",
+    "ogImageUrl": "https://YOUR_DOMAIN/images/og-image.png",
+    "noindex": true
+  }
+}
