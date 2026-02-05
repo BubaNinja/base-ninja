@@ -2076,12 +2076,13 @@ async notifyMiniAppReady() {
     async confirmPurchase() {
         if (!this.pendingPurchase) return;
         
-        const { type, item } = this.pendingPurchase;
         const statusEl = document.getElementById('modalStatus');
         const buyBtn = document.getElementById('buyBtn');
         
         buyBtn.disabled = true;
         statusEl.textContent = 'Opening payment...';
+        
+        const isBatch = this.pendingPurchase.type === 'batch';
         
         try {
             // Use Base Pay SDK - handles wallet, USDC transfer, gas sponsorship
@@ -2089,8 +2090,12 @@ async notifyMiniAppReady() {
                 throw new Error('Base Pay SDK not loaded. Please refresh the page.');
             }
             
+            const amount = isBatch 
+                ? this.pendingPurchase.totalPrice.toString()
+                : this.pendingPurchase.item.price.toString();
+            
             const payment = await window.base.pay({
-                amount: item.price.toString(),
+                amount,
                 to: this.RECEIVER_ADDRESS,
                 testnet: false
             });
@@ -2098,30 +2103,63 @@ async notifyMiniAppReady() {
             console.log('Payment successful:', payment);
             statusEl.textContent = 'Payment confirmed! Unlocking...';
             
-            // Unlock the item
-            if (type === 'blade') {
-                const blade = this.blades.find(b => b.id === item.id);
-                if (blade) blade.unlocked = true;
-            } else {
-                const bg = this.backgrounds.find(b => b.id === item.id);
-                if (bg) bg.unlocked = true;
-            }
-            
-            // Save purchase to localStorage (use tx id as proof)
-            this.savePurchase(type, item.id);
-            
-            // Also save tx receipt for verification
-            try {
-                const receipts = JSON.parse(localStorage.getItem('baseninja_receipts') || '[]');
-                receipts.push({
-                    type, itemId: item.id, txId: payment.id,
-                    amount: payment.amount, to: payment.to,
-                    timestamp: Date.now()
+            if (isBatch) {
+                // Unlock all batch items
+                this.pendingPurchase.items.forEach(({ type, item }) => {
+                    if (type === 'blade') {
+                        const blade = this.blades.find(b => b.id === item.id);
+                        if (blade) {
+                            blade.unlocked = true;
+                            this.savePurchase('blade', item.id);
+                        }
+                    } else {
+                        const bg = this.backgrounds.find(b => b.id === item.id);
+                        if (bg) {
+                            bg.unlocked = true;
+                            this.savePurchase('bg', item.id);
+                        }
+                    }
                 });
-                localStorage.setItem('baseninja_receipts', JSON.stringify(receipts));
-            } catch (e) { console.warn('Failed to save receipt:', e); }
-            
-            statusEl.textContent = 'Success! Item unlocked!';
+                
+                // Save batch receipt
+                try {
+                    const receipts = JSON.parse(localStorage.getItem('baseninja_receipts') || '[]');
+                    receipts.push({
+                        type: 'batch',
+                        items: this.pendingPurchase.items.map(i => ({ type: i.type, id: i.item.id })),
+                        txId: payment.id, amount: payment.amount, to: payment.to,
+                        timestamp: Date.now()
+                    });
+                    localStorage.setItem('baseninja_receipts', JSON.stringify(receipts));
+                } catch (e) { console.warn('Failed to save receipt:', e); }
+                
+                const count = this.pendingPurchase.items.length;
+                statusEl.textContent = `Success! ${count} items unlocked!`;
+            } else {
+                // Single item unlock
+                const { type, item } = this.pendingPurchase;
+                if (type === 'blade') {
+                    const blade = this.blades.find(b => b.id === item.id);
+                    if (blade) blade.unlocked = true;
+                } else {
+                    const bg = this.backgrounds.find(b => b.id === item.id);
+                    if (bg) bg.unlocked = true;
+                }
+                
+                this.savePurchase(type, item.id);
+                
+                try {
+                    const receipts = JSON.parse(localStorage.getItem('baseninja_receipts') || '[]');
+                    receipts.push({
+                        type, itemId: item.id, txId: payment.id,
+                        amount: payment.amount, to: payment.to,
+                        timestamp: Date.now()
+                    });
+                    localStorage.setItem('baseninja_receipts', JSON.stringify(receipts));
+                } catch (e) { console.warn('Failed to save receipt:', e); }
+                
+                statusEl.textContent = 'Success! Item unlocked!';
+            }
             
             setTimeout(() => {
                 this.closePurchaseModal();
@@ -2171,61 +2209,31 @@ async notifyMiniAppReady() {
             return;
         }
         
-        // Calculate total price (each item is 1 USDC)
+        // Calculate total price
         const totalPrice = items.reduce((sum, i) => sum + i.item.price, 0);
-        const confirmMsg = `Buy ${items.length} items for ${totalPrice} USDC?`;
         
-        if (!confirm(confirmMsg)) return;
-        
-        try {
-            // Use Base Pay SDK - single payment for total amount
-            if (typeof window.base === 'undefined' || typeof window.base.pay !== 'function') {
-                throw new Error('Base Pay SDK not loaded. Please refresh the page.');
-            }
-            
-            const payment = await window.base.pay({
-                amount: totalPrice.toString(),
-                to: this.RECEIVER_ADDRESS,
-                testnet: false
-            });
-            
-            console.log('Batch payment successful:', payment);
-            
-            // Unlock all items
-            items.forEach(({ type, item }) => {
-                if (type === 'blade') {
-                    const blade = this.blades.find(b => b.id === item.id);
-                    if (blade) {
-                        blade.unlocked = true;
-                        this.savePurchase('blade', item.id);
-                    }
-                } else {
-                    const bg = this.backgrounds.find(b => b.id === item.id);
-                    if (bg) {
-                        bg.unlocked = true;
-                        this.savePurchase('bg', item.id);
-                    }
-                }
-            });
-            
-            // Save receipt
-            try {
-                const receipts = JSON.parse(localStorage.getItem('baseninja_receipts') || '[]');
-                receipts.push({
-                    type: 'batch', items: items.map(i => ({ type: i.type, id: i.item.id })),
-                    txId: payment.id, amount: payment.amount, to: payment.to,
-                    timestamp: Date.now()
-                });
-                localStorage.setItem('baseninja_receipts', JSON.stringify(receipts));
-            } catch (e) { console.warn('Failed to save receipt:', e); }
-            
-            alert(`Success! Unlocked ${items.length} items!`);
-            this.renderShop();
-            
-        } catch (error) {
-            console.error('Batch purchase error:', error);
-            alert('Purchase failed: ' + (error.message || 'Payment failed'));
+        // Pick icon/name for modal
+        let icon, name;
+        if (category === 'blade') {
+            icon = '⚔️';
+            name = `All Blades (${items.length})`;
+        } else if (category === 'bg') {
+            icon = '🎨';
+            name = `All Backgrounds (${items.length})`;
+        } else {
+            icon = '🛒';
+            name = `Everything (${items.length} items)`;
         }
+        
+        // Store batch data and show the purchase modal
+        this.pendingPurchase = { type: 'batch', category, items, totalPrice };
+        
+        document.getElementById('modalItem').textContent = icon;
+        document.getElementById('modalName').textContent = name;
+        document.getElementById('modalPrice').textContent = totalPrice + ' USDC';
+        document.getElementById('modalStatus').textContent = '';
+        document.getElementById('buyBtn').disabled = false;
+        document.getElementById('purchaseModal').classList.add('show');
     },
     
     // ============ LEADERBOARD FUNCTIONS ============
