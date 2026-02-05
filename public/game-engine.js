@@ -4,6 +4,7 @@
 // =============================================================================
 
 /* global ethers */
+/* global base */ // @base-org/account SDK (window.base.pay)
 
 const Game = {
     canvas: null, ctx: null, W: 0, H: 0, dpr: 1,
@@ -212,6 +213,7 @@ const Game = {
         this.initSpace();
         this.initWaves();
         this.loadImages();
+        this.loadPurchases(); // Load device-cached purchases (works without wallet)
         this.loop();
         
         // Notify Farcaster/Base App that the mini app is ready
@@ -693,7 +695,7 @@ async notifyMiniAppReady() {
     },
     
     loadImages() {
-        const files = {BTC:'btc.png',ETH:'eth.png',XRP:'xrp.png',USDT:'usdt.png',SOL:'sol.png',USDC:'usdc.png',TRX:'trx.png',BASE:'base.png',PENGU:'pengu.png',HYPE:'hype.png'};
+        const files = {BTC:'btc.png',ETH:'eth.png',XRP:'xrp.webp',USDT:'usdt.png',SOL:'sol.png',USDC:'usdc.png',TRX:'trx.png',BASE:'base.png',PENGU:'pengu.png',HYPE:'hype.png'};
         Object.entries(files).forEach(([id,file]) => {
             const img = new Image();
             img.src = '/images/' + file;
@@ -1719,12 +1721,7 @@ async notifyMiniAppReady() {
     },
     
     updateBuyAllButtons() {
-        if (!this.walletConnected) {
-            document.getElementById('buyAllBladesBtn').style.display = 'none';
-            document.getElementById('buyAllBgsBtn').style.display = 'none';
-            document.getElementById('buyEverythingBtn').style.display = 'none';
-            return;
-        }
+        // Buy all buttons work without wallet connection (Base Pay handles it)
         
         // Count locked blades
         const lockedBlades = this.blades.filter(b => !b.unlocked);
@@ -1892,38 +1889,40 @@ async notifyMiniAppReady() {
         }
     },
     
-    // Load purchases from localStorage for current wallet
+    // Load purchases from localStorage for current wallet or device
     loadPurchases() {
-        if (!this.walletAddress) return;
-        
-        const key = `baseninja_${this.walletAddress.toLowerCase()}`;
+        const keyId = this.walletAddress ? this.walletAddress.toLowerCase() : 'device';
+        const key = `baseninja_${keyId}`;
         const saved = localStorage.getItem(key);
         
-        if (saved) {
+        // Also load device purchases if wallet is connected (merge both)
+        const deviceSaved = this.walletAddress ? localStorage.getItem('baseninja_device') : null;
+        
+        const loadData = (dataStr) => {
+            if (!dataStr) return;
             try {
-                const data = JSON.parse(saved);
-                
-                // Restore blade unlocks
+                const data = JSON.parse(dataStr);
                 if (data.blades) {
                     data.blades.forEach(bladeId => {
                         const blade = this.blades.find(b => b.id === bladeId);
                         if (blade) blade.unlocked = true;
                     });
                 }
-                
-                // Restore background unlocks
                 if (data.backgrounds) {
                     data.backgrounds.forEach(bgId => {
                         const bg = this.backgrounds.find(b => b.id === bgId);
                         if (bg) bg.unlocked = true;
                     });
                 }
-                
-                console.log('Purchases loaded from cache for', this.walletAddress);
             } catch (e) {
                 console.error('Failed to load purchases:', e);
             }
-        }
+        };
+        
+        loadData(saved);
+        loadData(deviceSaved);
+        
+        console.log('Purchases loaded for', keyId);
         
         // Also check onchain (async, will update UI when done)
         this.loadPurchasesOnchain();
@@ -2032,9 +2031,9 @@ async notifyMiniAppReady() {
     
     // Save purchase to localStorage
     savePurchase(type, itemId) {
-        if (!this.walletAddress) return;
-        
-        const key = `baseninja_${this.walletAddress.toLowerCase()}`;
+        // Use wallet address if connected, otherwise device-based key
+        const keyId = this.walletAddress ? this.walletAddress.toLowerCase() : 'device';
+        const key = `baseninja_${keyId}`;
         let data = { blades: [], backgrounds: [] };
         
         // Load existing data
@@ -2058,11 +2057,6 @@ async notifyMiniAppReady() {
     },
     
     openPurchaseModal(type, item) {
-        if (!this.walletConnected) {
-            alert('Please connect your wallet first!');
-            return;
-        }
-        
         this.pendingPurchase = { type, item };
         
         document.getElementById('modalItem').textContent = item.icon;
@@ -2080,66 +2074,29 @@ async notifyMiniAppReady() {
     },
     
     async confirmPurchase() {
-        if (!this.pendingPurchase || !this.walletConnected) return;
+        if (!this.pendingPurchase) return;
         
         const { type, item } = this.pendingPurchase;
         const statusEl = document.getElementById('modalStatus');
         const buyBtn = document.getElementById('buyBtn');
         
         buyBtn.disabled = true;
-        statusEl.textContent = 'Processing...';
-        
-        const useShopContract = this.SHOP_CONTRACT_ADDRESS !== '0x0000000000000000000000000000000000000000';
+        statusEl.textContent = 'Opening payment...';
         
         try {
-            // USDC has 6 decimals
-            const amount = ethers.parseUnits(item.price.toString(), 6);
-            
-            if (useShopContract) {
-                // === ONCHAIN METHOD: Use Shop Contract ===
-                
-                // 1. Check/Request USDC approval
-                const usdcAbi = [
-                    'function approve(address spender, uint256 amount) returns (bool)',
-                    'function allowance(address owner, address spender) view returns (uint256)'
-                ];
-                const usdcContract = new ethers.Contract(this.USDC_ADDRESS, usdcAbi, this.signer);
-                
-                statusEl.textContent = 'Checking approval...';
-                
-                const currentAllowance = await usdcContract.allowance(this.walletAddress, this.SHOP_CONTRACT_ADDRESS);
-                
-                if (currentAllowance < amount) {
-                    statusEl.textContent = 'Approve USDC spending...';
-                    const approveTx = await usdcContract.approve(this.SHOP_CONTRACT_ADDRESS, amount);
-                    statusEl.textContent = 'Waiting for approval...';
-                    await approveTx.wait();
-                }
-                
-                // 2. Call purchaseItem on shop contract
-                statusEl.textContent = 'Confirm purchase...';
-                
-                const shopContract = new ethers.Contract(this.SHOP_CONTRACT_ADDRESS, this.SHOP_ABI, this.signer);
-                const itemType = type === 'blade' ? 'blade' : 'bg';
-                
-                const tx = await shopContract.purchaseItem(itemType, item.id);
-                
-                statusEl.textContent = 'Waiting for confirmation...';
-                await tx.wait();
-                
-            } else {
-                // === LEGACY METHOD: Direct USDC transfer ===
-                
-                const usdcAbi = ['function transfer(address to, uint256 amount) returns (bool)'];
-                const usdcContract = new ethers.Contract(this.USDC_ADDRESS, usdcAbi, this.signer);
-                
-                statusEl.textContent = 'Confirm in wallet...';
-                
-                const tx = await usdcContract.transfer(this.RECEIVER_ADDRESS, amount);
-                
-                statusEl.textContent = 'Waiting for confirmation...';
-                await tx.wait();
+            // Use Base Pay SDK - handles wallet, USDC transfer, gas sponsorship
+            if (typeof window.base === 'undefined' || typeof window.base.pay !== 'function') {
+                throw new Error('Base Pay SDK not loaded. Please refresh the page.');
             }
+            
+            const payment = await window.base.pay({
+                amount: item.price.toString(),
+                to: this.RECEIVER_ADDRESS,
+                testnet: false
+            });
+            
+            console.log('Payment successful:', payment);
+            statusEl.textContent = 'Payment confirmed! Unlocking...';
             
             // Unlock the item
             if (type === 'blade') {
@@ -2150,8 +2107,19 @@ async notifyMiniAppReady() {
                 if (bg) bg.unlocked = true;
             }
             
-            // Save purchase to localStorage (cache)
+            // Save purchase to localStorage (use tx id as proof)
             this.savePurchase(type, item.id);
+            
+            // Also save tx receipt for verification
+            try {
+                const receipts = JSON.parse(localStorage.getItem('baseninja_receipts') || '[]');
+                receipts.push({
+                    type, itemId: item.id, txId: payment.id,
+                    amount: payment.amount, to: payment.to,
+                    timestamp: Date.now()
+                });
+                localStorage.setItem('baseninja_receipts', JSON.stringify(receipts));
+            } catch (e) { console.warn('Failed to save receipt:', e); }
             
             statusEl.textContent = 'Success! Item unlocked!';
             
@@ -2162,7 +2130,7 @@ async notifyMiniAppReady() {
             
         } catch (error) {
             console.error('Purchase error:', error);
-            statusEl.textContent = 'Error: ' + (error.reason || error.message || 'Transaction failed');
+            statusEl.textContent = 'Error: ' + (error.message || 'Payment failed');
             buyBtn.disabled = false;
         }
     },
@@ -2183,99 +2151,80 @@ async notifyMiniAppReady() {
     },
     
     async buyMultipleItems(category) {
-        if (!this.walletConnected) {
-            alert('Please connect your wallet first!');
-            return;
-        }
-        
-        const useShopContract = this.SHOP_CONTRACT_ADDRESS !== '0x0000000000000000000000000000000000000000';
-        
-        if (!useShopContract) {
-            alert('Batch purchase requires updated contract. Please contact support.');
-            return;
-        }
-        
         // Collect locked items
-        let itemTypes = [];
-        let itemIds = [];
+        let items = [];
         
         if (category === 'blade' || category === 'all') {
             this.blades.filter(b => !b.unlocked).forEach(blade => {
-                itemTypes.push('blade');
-                itemIds.push(blade.id);
+                items.push({ type: 'blade', item: blade });
             });
         }
         
         if (category === 'bg' || category === 'all') {
             this.backgrounds.filter(bg => !bg.unlocked).forEach(bg => {
-                itemTypes.push('bg');
-                itemIds.push(bg.id);
+                items.push({ type: 'bg', item: bg });
             });
         }
         
-        if (itemTypes.length === 0) {
+        if (items.length === 0) {
             alert('No items to purchase!');
             return;
         }
         
-        const totalPrice = itemTypes.length;
-        const confirmMsg = `Buy ${itemTypes.length} items for ${totalPrice} USDC?`;
+        // Calculate total price (each item is 1 USDC)
+        const totalPrice = items.reduce((sum, i) => sum + i.item.price, 0);
+        const confirmMsg = `Buy ${items.length} items for ${totalPrice} USDC?`;
         
         if (!confirm(confirmMsg)) return;
         
         try {
-            // USDC has 6 decimals
-            const amount = ethers.parseUnits(totalPrice.toString(), 6);
-            
-            // 1. Approve USDC
-            const usdcAbi = [
-                'function approve(address spender, uint256 amount) returns (bool)',
-                'function allowance(address owner, address spender) view returns (uint256)'
-            ];
-            const usdcContract = new ethers.Contract(this.USDC_ADDRESS, usdcAbi, this.signer);
-            
-            console.log('Checking approval...');
-            const currentAllowance = await usdcContract.allowance(this.walletAddress, this.SHOP_CONTRACT_ADDRESS);
-            
-            if (currentAllowance < amount) {
-                console.log('Requesting approval...');
-                const approveTx = await usdcContract.approve(this.SHOP_CONTRACT_ADDRESS, amount);
-                console.log('Waiting for approval confirmation...');
-                await approveTx.wait();
+            // Use Base Pay SDK - single payment for total amount
+            if (typeof window.base === 'undefined' || typeof window.base.pay !== 'function') {
+                throw new Error('Base Pay SDK not loaded. Please refresh the page.');
             }
             
-            // 2. Call purchaseMultiple
-            console.log('Purchasing items...');
-            const shopContract = new ethers.Contract(this.SHOP_CONTRACT_ADDRESS, this.SHOP_ABI, this.signer);
-            const tx = await shopContract.purchaseMultiple(itemTypes, itemIds);
+            const payment = await window.base.pay({
+                amount: totalPrice.toString(),
+                to: this.RECEIVER_ADDRESS,
+                testnet: false
+            });
             
-            console.log('Waiting for transaction confirmation...');
-            await tx.wait();
+            console.log('Batch payment successful:', payment);
             
-            // 3. Unlock all items
-            itemTypes.forEach((type, i) => {
-                const id = itemIds[i];
+            // Unlock all items
+            items.forEach(({ type, item }) => {
                 if (type === 'blade') {
-                    const blade = this.blades.find(b => b.id === id);
+                    const blade = this.blades.find(b => b.id === item.id);
                     if (blade) {
                         blade.unlocked = true;
-                        this.savePurchase('blade', id);
+                        this.savePurchase('blade', item.id);
                     }
                 } else {
-                    const bg = this.backgrounds.find(b => b.id === id);
+                    const bg = this.backgrounds.find(b => b.id === item.id);
                     if (bg) {
                         bg.unlocked = true;
-                        this.savePurchase('bg', id);
+                        this.savePurchase('bg', item.id);
                     }
                 }
             });
             
-            alert(`Success! Unlocked ${itemTypes.length} items!`);
+            // Save receipt
+            try {
+                const receipts = JSON.parse(localStorage.getItem('baseninja_receipts') || '[]');
+                receipts.push({
+                    type: 'batch', items: items.map(i => ({ type: i.type, id: i.item.id })),
+                    txId: payment.id, amount: payment.amount, to: payment.to,
+                    timestamp: Date.now()
+                });
+                localStorage.setItem('baseninja_receipts', JSON.stringify(receipts));
+            } catch (e) { console.warn('Failed to save receipt:', e); }
+            
+            alert(`Success! Unlocked ${items.length} items!`);
             this.renderShop();
             
         } catch (error) {
             console.error('Batch purchase error:', error);
-            alert('Purchase failed: ' + (error.reason || error.message || 'Transaction failed'));
+            alert('Purchase failed: ' + (error.message || 'Payment failed'));
         }
     },
     
