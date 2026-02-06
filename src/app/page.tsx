@@ -33,6 +33,8 @@ export default function Home() {
     <>
       {/* Base Account SDK for payments */}
       <Script src="/base-account.min.js" strategy="beforeInteractive" />
+      {/* Farcaster MiniApp SDK for user context */}
+      <Script src="https://cdn.jsdelivr.net/npm/@farcaster/frame-sdk/dist/index.min.js" strategy="beforeInteractive" />
       {/* Game Engine Script */}
       <Script src="/game-engine.js" strategy="afterInteractive" />
 
