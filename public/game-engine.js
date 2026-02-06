@@ -246,9 +246,9 @@ async notifyMiniAppReady() {
             if (sdk.context && sdk.context.user) {
                 const user = sdk.context.user;
                 this.farcasterUser = {
-                    fid: user.fid,
-                    username: user.username || user.displayName || `fid:${user.fid}`,
-                    pfpUrl: user.pfpUrl || '',
+                    fid: String(user.fid || ''),
+                    username: String(user.username || user.displayName || `fid:${user.fid}`),
+                    pfpUrl: String(user.pfpUrl || ''),
                 };
                 console.log('Farcaster user:', this.farcasterUser.username, 'FID:', this.farcasterUser.fid);
             }
@@ -2422,11 +2422,11 @@ async notifyMiniAppReady() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    fid: this.farcasterUser.fid,
-                    username: this.farcasterUser.username,
-                    pfpUrl: this.farcasterUser.pfpUrl,
-                    score: score,
-                    mode: modeName,
+                    fid: String(this.farcasterUser.fid),
+                    username: String(this.farcasterUser.username || ''),
+                    pfpUrl: String(this.farcasterUser.pfpUrl || ''),
+                    score: Number(score),
+                    mode: String(modeName),
                 }),
             });
             
