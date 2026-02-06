@@ -66,7 +66,7 @@ export default function Home() {
               CUSTOMIZE<small>blades &amp; backgrounds</small>
             </button>
             <button className="btn btn-secondary" onClick={() => { (window as any).Game?.playClickSound(); (window as any).Game?.showLeaderboard(); }}>
-              LEADERBOARD<small>top 100 onchain</small>
+              LEADERBOARD<small>top 100 players</small>
             </button>
           </div>
           <div className="sound-controls">
@@ -159,7 +159,7 @@ export default function Home() {
         {/* Leaderboard */}
         <div id="leaderboard" className="screen hidden">
           <div className="leaderboard-title">LEADERBOARD</div>
-          <div className="leaderboard-subtitle">TOP 100 PLAYERS ONCHAIN</div>
+          <div className="leaderboard-subtitle">TOP 100 PLAYERS</div>
           <div className="leaderboard-tabs">
             <button className="leaderboard-tab active" id="tabClassic" onClick={() => (window as any).Game?.switchLeaderboardTab(0)}>CLASSIC</button>
             <button className="leaderboard-tab" id="tabArcade" onClick={() => (window as any).Game?.switchLeaderboardTab(1)}>ARCADE</button>
@@ -169,12 +169,8 @@ export default function Home() {
             <div className="my-stats-value" id="myBestScore">0</div>
             <div className="my-stats-rank" id="myRank"></div>
           </div>
-          <div className="nickname-section" id="nicknameSection" style={{display:'none'}}>
-            <input type="text" className="nickname-input" id="nicknameInput" placeholder="Set nickname" maxLength={20} />
-            <button className="nickname-btn" id="nicknameBtn" onClick={() => (window as any).Game?.saveNickname()}>Save</button>
-          </div>
           <div className="leaderboard-list" id="leaderboardList">
-            <div className="leaderboard-loading">Connect wallet to view leaderboard</div>
+            <div className="leaderboard-loading">Loading...</div>
           </div>
           <div className="buttons" style={{marginTop:'15px'}}>
             <button className="btn btn-secondary" onClick={() => { (window as any).Game?.playClickSound(); (window as any).Game?.hideLeaderboard(); }}>BACK</button>
@@ -187,13 +183,11 @@ export default function Home() {
             <div className="submit-title">NEW SCORE!</div>
             <div className="submit-score" id="submitScoreValue">0</div>
             <div className="submit-best" id="submitBestText"></div>
-            <div className="submit-nickname">
-              <input type="text" id="submitNickname" placeholder="Nickname (optional)" maxLength={20} />
-            </div>
             <div className="submit-status" id="submitStatus"></div>
             <div className="submit-buttons">
               <button className="submit-btn skip" onClick={() => (window as any).Game?.skipSubmitScore()}>Skip</button>
-              <button className="submit-btn send" id="submitBtn" onClick={() => (window as any).Game?.submitScoreOnchain()}>Submit Onchain</button>
+              <button className="submit-btn send" id="submitBtn" onClick={() => (window as any).Game?.submitScore()}>Submit</button>
+              <button id="shareBtn" style={{display:'none'}} onClick={() => (window as any).Game?.shareScore()}>📢 Share</button>
             </div>
           </div>
         </div>
