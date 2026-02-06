@@ -1,6 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
+// Helper: extract FID string from zrange results (handles both formats)
+function parseZrangeResults(raw: any[]): { fid: string; score: number }[] {
+  const entries: { fid: string; score: number }[] = [];
+  if (!raw || raw.length === 0) return entries;
+
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    // withScores returns flat: [member, score, member, score, ...]
+    // BUT @vercel/kv may auto-parse members as JSON
+    // So member could be: string, number, or object
+    if (typeof item === 'object' && item !== null && 'member' in item) {
+      // Object format from some KV versions: {member, score}
+      entries.push({
+        fid: primitiveToString(item.member),
+        score: Number(item.score),
+      });
+    } else if (i + 1 < raw.length) {
+      // Flat format: [member, score, member, score, ...]
+      entries.push({
+        fid: primitiveToString(raw[i]),
+        score: Number(raw[i + 1]),
+      });
+      i++; // skip score
+    }
+  }
+  return entries;
+}
+
+// Force anything to a plain string (handles objects, numbers, etc.)
+function primitiveToString(val: any): string {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'bigint') return val.toString();
+  // If it's an object, try to extract meaningful value
+  if (typeof val === 'object') {
+    if ('fid' in val) return primitiveToString(val.fid);
+    if ('value' in val) return primitiveToString(val.value);
+    // Last resort: JSON
+    try { return JSON.stringify(val); } catch { return ''; }
+  }
+  return String(val);
+}
+
 // GET /api/leaderboard?mode=classic&limit=100
 export async function GET(request: NextRequest) {
   try {
@@ -8,65 +51,49 @@ export async function GET(request: NextRequest) {
     const mode = searchParams.get('mode') || 'classic';
     const limit = Math.min(parseInt(searchParams.get('limit') || '100'), 100);
 
-    const key = `leaderboard:${mode}`;
+    const key = `lb:${mode}`;
 
-    // Get top scores with scores included
+    // Get top scores (highest first)
     const rawResults = await kv.zrange(key, 0, limit - 1, { rev: true, withScores: true });
+    const entries = parseZrangeResults(rawResults);
 
-    // rawResults is flat array: [member1, score1, member2, score2, ...]
-    // or could be array of objects depending on KV version
-    const entries: { fid: string; score: number }[] = [];
-
-    if (rawResults.length === 0) {
+    if (entries.length === 0) {
       return NextResponse.json({ scores: [] });
     }
 
-    // Detect format: if first element has a 'member' or 'score' property, it's object format
-    if (typeof rawResults[0] === 'object' && rawResults[0] !== null && 'member' in rawResults[0]) {
-      // Object format: [{member, score}, ...]
-      for (const item of rawResults as any[]) {
-        entries.push({ fid: String(item.member), score: Number(item.score) });
-      }
-    } else {
-      // Flat array format: [member1, score1, member2, score2, ...]
-      for (let i = 0; i < rawResults.length; i += 2) {
-        entries.push({
-          fid: String(rawResults[i]),
-          score: Number(rawResults[i + 1]),
-        });
-      }
-    }
-
-    // Fetch user data for each FID
+    // Fetch user profiles (stored as simple JSON strings via kv.set)
     const scores = [];
     for (const entry of entries) {
+      let username = `fid:${entry.fid}`;
+      let pfpUrl = '';
+      let timestamp = 0;
+
       try {
-        const userData = await kv.hgetall(`user:${entry.fid}`);
-        scores.push({
-          fid: entry.fid,
-          username: userData ? String(userData.username || `fid:${entry.fid}`) : `fid:${entry.fid}`,
-          pfpUrl: userData ? String(userData.pfpUrl || '') : '',
-          score: entry.score,
-          timestamp: userData ? Number(userData[`best_${mode}_ts`] || 0) : 0,
-        });
+        const profileRaw = await kv.get(`profile:${entry.fid}`);
+        if (profileRaw) {
+          // profileRaw might be auto-parsed by KV, or might be a string
+          const profile = typeof profileRaw === 'string' ? JSON.parse(profileRaw) : profileRaw;
+          username = profile.u || username;
+          pfpUrl = profile.p || '';
+          timestamp = profile.t || 0;
+        }
       } catch {
-        scores.push({
-          fid: entry.fid,
-          username: `fid:${entry.fid}`,
-          pfpUrl: '',
-          score: entry.score,
-          timestamp: 0,
-        });
+        // ignore, use defaults
       }
+
+      scores.push({
+        fid: entry.fid,
+        username,
+        pfpUrl,
+        score: entry.score,
+        timestamp,
+      });
     }
 
     return NextResponse.json({ scores });
   } catch (error: any) {
     console.error('Leaderboard GET error:', error);
-    if (error.message?.includes('REDIS') || error.message?.includes('KV') || error.message?.includes('connect')) {
-      return NextResponse.json({ scores: [], error: 'KV not configured' }, { status: 200 });
-    }
-    return NextResponse.json({ error: 'Failed to load leaderboard' }, { status: 500 });
+    return NextResponse.json({ scores: [], error: error.message }, { status: 200 });
   }
 }
 
@@ -75,44 +102,41 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { fid, username, pfpUrl, score, mode } = body;
+    let { fid, username, pfpUrl, score, mode } = body;
 
-    if (!fid || score === undefined || !mode) {
-      return NextResponse.json({ error: 'Missing required fields: fid, score, mode' }, { status: 400 });
+    // Aggressively convert to primitives
+    fid = primitiveToString(fid);
+    username = primitiveToString(username) || `fid:${fid}`;
+    pfpUrl = primitiveToString(pfpUrl);
+    score = Number(score);
+    mode = primitiveToString(mode);
+
+    if (!fid || isNaN(score) || !mode) {
+      return NextResponse.json({ error: 'Missing: fid, score, mode' }, { status: 400 });
     }
-
     if (!['classic', 'arcade'].includes(mode)) {
       return NextResponse.json({ error: 'Invalid mode' }, { status: 400 });
     }
-
-    if (typeof score !== 'number' || score < 0 || score > 999999) {
+    if (score < 0 || score > 999999) {
       return NextResponse.json({ error: 'Invalid score' }, { status: 400 });
     }
 
-    // Ensure all values are plain strings
-    const fidStr = String(fid);
-    const usernameStr = String(username || `fid:${fidStr}`);
-    const pfpUrlStr = String(pfpUrl || '');
-    const key = `leaderboard:${mode}`;
-    const userKey = `user:${fidStr}`;
+    const key = `lb:${mode}`;
 
-    // Check current best score
-    const currentBest = await kv.zscore(key, fidStr);
+    // Check current best
+    const currentBest = await kv.zscore(key, fid);
 
-    // Only update if new score is higher
     if (currentBest === null || score > Number(currentBest)) {
-      // Update sorted set
-      await kv.zadd(key, { score: score, member: fidStr });
+      // Update sorted set — member MUST be a plain string
+      await kv.zadd(key, { score, member: fid });
 
-      // Update user data as plain strings to avoid serialization issues
-      await kv.hset(userKey, {
-        username: usernameStr,
-        pfpUrl: pfpUrlStr,
-        [`best_${mode}`]: String(score),
-        [`best_${mode}_ts`]: String(Date.now()),
-      });
+      // Store profile as simple JSON via kv.set (avoids hash serialization issues)
+      // Short keys: u=username, p=pfpUrl, t=timestamp
+      const profile = JSON.stringify({ u: username, p: pfpUrl, t: Date.now() });
+      await kv.set(`profile:${fid}`, profile);
 
-      const rank = await kv.zrevrank(key, fidStr);
+      // Get new rank
+      const rank = await kv.zrevrank(key, fid);
 
       return NextResponse.json({
         success: true,
@@ -129,9 +153,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error('Leaderboard POST error:', error);
-    if (error.message?.includes('REDIS') || error.message?.includes('KV') || error.message?.includes('connect')) {
-      return NextResponse.json({ error: 'KV not configured. Add Vercel KV storage to your project.' }, { status: 503 });
-    }
-    return NextResponse.json({ error: 'Failed to submit score' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Failed' }, { status: 500 });
   }
 }
