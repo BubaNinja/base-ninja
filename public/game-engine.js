@@ -249,46 +249,50 @@ const Game = {
     
 async notifyMiniAppReady() {
     try {
-        // Try multiple SDK paths
-        const sdk = window.miniapp?.sdk || window.sdk || window.MiniKit;
+        // Farcaster Frame SDK loaded via CDN exposes window.frame.sdk
+        // MiniKit may expose window.miniapp.sdk or window.sdk
+        const sdk = window.frame?.sdk || window.miniapp?.sdk || window.sdk;
         
-        if (sdk) {
-            if (sdk.actions?.ready) {
-                await sdk.actions.ready();
-            } else if (sdk.ready) {
-                await sdk.ready();
-            }
-            console.log('[BN] Mini App SDK ready');
-            console.log('[BN] SDK keys:', Object.keys(sdk));
-            
-            // Try to get context (might be property, getter, or async)
-            let ctx = null;
+        if (!sdk) {
+            console.log('[BN] No MiniApp SDK found. window.frame:', typeof window.frame, 'window.miniapp:', typeof window.miniapp);
+            return;
+        }
+        
+        // Call ready() to dismiss splash screen
+        if (sdk.actions?.ready) {
+            await sdk.actions.ready();
+        }
+        console.log('[BN] SDK ready. Getting context...');
+        
+        // sdk.context is a Promise in the Farcaster Frame SDK
+        let ctx = null;
+        try {
             if (typeof sdk.context === 'function') {
                 ctx = await sdk.context();
-            } else if (sdk.context && typeof sdk.context.then === 'function') {
-                ctx = await sdk.context;
             } else {
-                ctx = sdk.context;
+                ctx = await sdk.context;  // It's a Promise/getter
             }
-            
-            console.log('[BN] Context:', JSON.stringify(ctx, null, 2)?.substring(0, 500));
-            
-            // Try to find user in context
-            const user = ctx?.user || ctx?.client?.user || ctx;
-            const fid = user?.fid || ctx?.fid;
-            
-            if (fid) {
-                this.farcasterUser = {
-                    fid: String(fid),
-                    username: String(user?.username || user?.displayName || `fid:${fid}`),
-                    pfpUrl: String(user?.pfpUrl || user?.pfp_url || user?.avatar || ''),
-                };
-                console.log('[BN] Farcaster user:', this.farcasterUser.username, 'FID:', this.farcasterUser.fid);
-            } else {
-                console.log('[BN] No FID found in context. User object:', JSON.stringify(user)?.substring(0, 300));
-            }
+        } catch (e) {
+            console.log('[BN] Context fetch error:', e);
+        }
+        
+        console.log('[BN] Raw context:', JSON.stringify(ctx)?.substring(0, 500));
+        
+        if (!ctx) return;
+        
+        // Extract user - could be in ctx.user or directly on ctx
+        const user = ctx.user || ctx;
+        const fid = user?.fid;
+        
+        if (fid) {
+            this.farcasterUser = {
+                fid: String(fid),
+                username: String(user.username || user.displayName || `fid:${fid}`),
+                pfpUrl: String(user.pfpUrl || user.pfp_url || ''),
+            };
+            console.log('[BN] Farcaster user:', this.farcasterUser.username, 'FID:', this.farcasterUser.fid, 'PFP:', this.farcasterUser.pfpUrl);
         } else {
-            console.log('[BN] No MiniApp SDK found. window.miniapp:', typeof window.miniapp, 'window.sdk:', typeof window.sdk);
+            console.log('[BN] No FID in context. Keys:', Object.keys(ctx));
         }
     } catch (e) {
         console.log('[BN] SDK error:', e);
@@ -2500,9 +2504,10 @@ async notifyMiniAppReady() {
         const gameUrl = 'https://base-ninja-game.vercel.app';
         
         try {
-            if (window.miniapp && window.miniapp.sdk) {
-                // Cast via Farcaster through MiniKit
-                await window.miniapp.sdk.actions.composeCast({
+            const sdk = window.frame?.sdk || window.miniapp?.sdk || window.sdk;
+            if (sdk && sdk.actions?.composeCast) {
+                // Cast via Farcaster through SDK
+                await sdk.actions.composeCast({
                     text: text,
                     embeds: [gameUrl],
                 });
