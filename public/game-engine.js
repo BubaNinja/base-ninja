@@ -230,31 +230,68 @@ const Game = {
         this.loadPurchases(); // Load device-cached purchases (works without wallet)
         this.loop();
         
-        // Notify Farcaster/Base App that the mini app is ready
+        // Set device fallback immediately (sync) so farcasterUser is never null
+        let deviceId = localStorage.getItem('baseninja_device_id');
+        if (!deviceId) {
+            deviceId = 'dev_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+            localStorage.setItem('baseninja_device_id', deviceId);
+        }
+        this.farcasterUser = {
+            fid: deviceId,
+            username: 'Player ' + deviceId.substring(4, 8),
+            pfpUrl: '',
+        };
+        
+        // Then try to get real Farcaster identity (async, will override device fallback)
         this.notifyMiniAppReady();
     },
     
     
 async notifyMiniAppReady() {
     try {
-        if (window.miniapp && window.miniapp.sdk) {
-            const sdk = window.miniapp.sdk;
-            await sdk.actions.ready();
-            console.log('Mini App ready');
-            
-            // Extract Farcaster user context
-            if (sdk.context && sdk.context.user) {
-                const user = sdk.context.user;
-                this.farcasterUser = {
-                    fid: String(user.fid || ''),
-                    username: String(user.username || user.displayName || `fid:${user.fid}`),
-                    pfpUrl: String(user.pfpUrl || ''),
-                };
-                console.log('Farcaster user:', this.farcasterUser.username, 'FID:', this.farcasterUser.fid);
+        // Try multiple SDK paths
+        const sdk = window.miniapp?.sdk || window.sdk || window.MiniKit;
+        
+        if (sdk) {
+            if (sdk.actions?.ready) {
+                await sdk.actions.ready();
+            } else if (sdk.ready) {
+                await sdk.ready();
             }
+            console.log('[BN] Mini App SDK ready');
+            console.log('[BN] SDK keys:', Object.keys(sdk));
+            
+            // Try to get context (might be property, getter, or async)
+            let ctx = null;
+            if (typeof sdk.context === 'function') {
+                ctx = await sdk.context();
+            } else if (sdk.context && typeof sdk.context.then === 'function') {
+                ctx = await sdk.context;
+            } else {
+                ctx = sdk.context;
+            }
+            
+            console.log('[BN] Context:', JSON.stringify(ctx, null, 2)?.substring(0, 500));
+            
+            // Try to find user in context
+            const user = ctx?.user || ctx?.client?.user || ctx;
+            const fid = user?.fid || ctx?.fid;
+            
+            if (fid) {
+                this.farcasterUser = {
+                    fid: String(fid),
+                    username: String(user?.username || user?.displayName || `fid:${fid}`),
+                    pfpUrl: String(user?.pfpUrl || user?.pfp_url || user?.avatar || ''),
+                };
+                console.log('[BN] Farcaster user:', this.farcasterUser.username, 'FID:', this.farcasterUser.fid);
+            } else {
+                console.log('[BN] No FID found in context. User object:', JSON.stringify(user)?.substring(0, 300));
+            }
+        } else {
+            console.log('[BN] No MiniApp SDK found. window.miniapp:', typeof window.miniapp, 'window.sdk:', typeof window.sdk);
         }
     } catch (e) {
-        console.log('SDK error:', e);
+        console.log('[BN] SDK error:', e);
     }
 },
     
@@ -2377,10 +2414,6 @@ async notifyMiniAppReady() {
     
     // Show submit score modal after game over
     showSubmitScoreModal() {
-        if (!this.farcasterUser) {
-            // Not in MiniApp — can't submit
-            return;
-        }
         
         const mode = this.mode === 'classic' ? 0 : 1;
         const score = this.score;
