@@ -721,7 +721,7 @@ async notifyMiniAppReady() {
     },
     
     loadImages() {
-        const files = {BTC:'btc.png',ETH:'eth.png',XRP:'xrp.png',USDT:'usdt.png',SOL:'sol.png',USDC:'usdc.png',TRX:'trx.png',BASE:'base.png',PENGU:'pengu.png',HYPE:'hype.png'};
+        const files = {BTC:'btc.png',ETH:'eth.png',XRP:'xrp.webp',USDT:'usdt.png',SOL:'sol.png',USDC:'usdc.png',TRX:'trx.png',BASE:'base.png',PENGU:'pengu.png',HYPE:'hype.png'};
         Object.entries(files).forEach(([id,file]) => {
             const img = new Image();
             img.src = '/images/' + file;
@@ -2448,6 +2448,9 @@ async notifyMiniAppReady() {
             // Show share button
             document.getElementById('shareBtn').style.display = 'inline-block';
             btn.style.display = 'none';
+            
+            // Refresh leaderboard data in background
+            this.loadLeaderboard();
             
         } catch (error) {
             console.error('Failed to submit score:', error);
