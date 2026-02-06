@@ -21,6 +21,10 @@ const Game = {
     signer: null,
     pendingPurchase: null,
     
+    // Farcaster / MiniKit identity
+    farcasterUser: null, // { fid, username, pfpUrl }
+    LEADERBOARD_API: '/api/leaderboard',
+    
     // Base chain config
     BASE_CHAIN_ID: 8453,
     USDC_ADDRESS: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
@@ -176,6 +180,16 @@ const Game = {
     cryptos: ['BTC','ETH','XRP','USDT','SOL','USDC','TRX','BASE','PENGU','HYPE'],
     
     init() {
+        // Inject additional styles for leaderboard pfp
+        const pfpStyle = document.createElement('style');
+        pfpStyle.textContent = `
+            .leaderboard-pfp { width: 28px; height: 28px; border-radius: 50%; margin-right: 8px; object-fit: cover; flex-shrink: 0; }
+            .leaderboard-pfp-placeholder { width: 28px; height: 28px; border-radius: 50%; margin-right: 8px; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+            .leaderboard-entry { display: flex; align-items: center; }
+            #shareBtn { background: linear-gradient(135deg, #8B5CF6, #6D28D9); border: none; color: #fff; padding: 10px 24px; border-radius: 10px; font-size: 14px; font-weight: bold; cursor: pointer; }
+        `;
+        document.head.appendChild(pfpStyle);
+        
         this.canvas = document.getElementById('game');
         this.ctx = this.canvas.getContext('2d');
         this.dpr = Math.min(devicePixelRatio || 1, 2);
@@ -224,8 +238,20 @@ const Game = {
 async notifyMiniAppReady() {
     try {
         if (window.miniapp && window.miniapp.sdk) {
-            await window.miniapp.sdk.actions.ready();
+            const sdk = window.miniapp.sdk;
+            await sdk.actions.ready();
             console.log('Mini App ready');
+            
+            // Extract Farcaster user context
+            if (sdk.context && sdk.context.user) {
+                const user = sdk.context.user;
+                this.farcasterUser = {
+                    fid: user.fid,
+                    username: user.username || user.displayName || `fid:${user.fid}`,
+                    pfpUrl: user.pfpUrl || '',
+                };
+                console.log('Farcaster user:', this.farcasterUser.username, 'FID:', this.farcasterUser.fid);
+            }
         }
     } catch (e) {
         console.log('SDK error:', e);
@@ -695,7 +721,7 @@ async notifyMiniAppReady() {
     },
     
     loadImages() {
-        const files = {BTC:'btc.png',ETH:'eth.png',XRP:'xrp.png',USDT:'usdt.png',SOL:'sol.png',USDC:'usdc.png',TRX:'trx.png',BASE:'base.png',PENGU:'pengu.png',HYPE:'hype.png'};
+        const files = {BTC:'btc.png',ETH:'eth.png',XRP:'xrp.webp',USDT:'usdt.png',SOL:'sol.png',USDC:'usdc.png',TRX:'trx.png',BASE:'base.png',PENGU:'pengu.png',HYPE:'hype.png'};
         Object.entries(files).forEach(([id,file]) => {
             const img = new Image();
             img.src = '/images/' + file;
@@ -1657,8 +1683,8 @@ async notifyMiniAppReady() {
             document.getElementById('goScore').textContent = this.score;
             document.getElementById('gameover').classList.remove('hidden');
             
-            // Show submit score modal if wallet connected and score > 0
-            if (this.walletConnected && this.score > 0) {
+            // Show submit score modal if Farcaster user identified and score > 0
+            if (this.farcasterUser && this.score > 0) {
                 setTimeout(() => this.showSubmitScoreModal(), 500);
             }
         }, 100);
@@ -2012,16 +2038,7 @@ async notifyMiniAppReady() {
                 console.log('Purchases verified onchain for', this.walletAddress);
             }
             
-            // Also load player's best scores and nickname for leaderboard
-            try {
-                for (let mode = 0; mode <= 1; mode++) {
-                    this.myBestScores[mode] = Number(await shopContract.playerBestScore(this.walletAddress, mode));
-                }
-                this.currentNickname = await shopContract.playerNickname(this.walletAddress);
-                console.log('Player stats loaded:', this.myBestScores, this.currentNickname);
-            } catch (e) {
-                console.log('Could not load player stats:', e.message);
-            }
+            // Leaderboard now uses API, no need to load from contract
             
         } catch (error) {
             console.error('Failed to load purchases onchain:', error);
@@ -2242,7 +2259,6 @@ async notifyMiniAppReady() {
     leaderboardData: { 0: [], 1: [] },
     myBestScores: { 0: 0, 1: 0 },
     myRanks: { 0: 0, 1: 0 },
-    currentNickname: '',
     
     showLeaderboard() {
         document.getElementById('menu').classList.add('hidden');
@@ -2266,56 +2282,41 @@ async notifyMiniAppReady() {
         const listEl = document.getElementById('leaderboardList');
         listEl.innerHTML = '<div class="leaderboard-loading">Loading...</div>';
         
-        // Check if contract is configured
-        if (this.SHOP_CONTRACT_ADDRESS === '0x0000000000000000000000000000000000000000') {
-            listEl.innerHTML = '<div class="leaderboard-empty">Leaderboard not configured yet.<br>Deploy smart contract first.</div>';
-            return;
-        }
-        
-        // Need wallet for some features but can view without
-        if (!this.walletConnected) {
-            document.getElementById('myStats').style.display = 'none';
-            document.getElementById('nicknameSection').style.display = 'none';
-        }
-        
         try {
-            const provider = this.provider || new ethers.BrowserProvider(window.ethereum || new ethers.JsonRpcProvider('https://mainnet.base.org'));
-            const shopContract = new ethers.Contract(this.SHOP_CONTRACT_ADDRESS, this.SHOP_ABI, provider);
-            
-            // Load both modes
+            // Load both modes from API
             for (let mode = 0; mode <= 1; mode++) {
-                const result = await shopContract.getTopScores(mode, 100);
-                this.leaderboardData[mode] = [];
+                const modeName = mode === 0 ? 'classic' : 'arcade';
+                const response = await fetch(`${this.LEADERBOARD_API}?mode=${modeName}&limit=100`);
+                const data = await response.json();
                 
-                for (let i = 0; i < result.players.length; i++) {
-                    this.leaderboardData[mode].push({
-                        player: result.players[i],
-                        score: Number(result.scores[i]),
-                        nickname: result.nicknames[i],
-                        timestamp: Number(result.timestamps[i])
-                    });
+                if (data.error === 'KV not configured') {
+                    listEl.innerHTML = '<div class="leaderboard-empty">Leaderboard coming soon!</div>';
+                    return;
                 }
+                
+                this.leaderboardData[mode] = data.scores || [];
             }
             
-            // Load player stats if connected
-            if (this.walletConnected && this.walletAddress) {
+            // Find my stats if Farcaster user is known
+            if (this.farcasterUser) {
+                const myFid = String(this.farcasterUser.fid);
                 for (let mode = 0; mode <= 1; mode++) {
-                    this.myBestScores[mode] = Number(await shopContract.playerBestScore(this.walletAddress, mode));
-                    this.myRanks[mode] = Number(await shopContract.getPlayerRank(this.walletAddress, mode));
+                    const myEntry = this.leaderboardData[mode].find(e => String(e.fid) === myFid);
+                    if (myEntry) {
+                        this.myBestScores[mode] = myEntry.score;
+                        this.myRanks[mode] = this.leaderboardData[mode].indexOf(myEntry) + 1;
+                    }
                 }
-                
-                this.currentNickname = await shopContract.playerNickname(this.walletAddress);
-                
                 document.getElementById('myStats').style.display = 'block';
-                document.getElementById('nicknameSection').style.display = 'flex';
-                document.getElementById('nicknameInput').value = this.currentNickname;
+            } else {
+                document.getElementById('myStats').style.display = 'none';
             }
             
             this.renderLeaderboard();
             
         } catch (error) {
             console.error('Failed to load leaderboard:', error);
-            listEl.innerHTML = '<div class="leaderboard-empty">Failed to load leaderboard.<br>' + (error.message || 'Check console for details') + '</div>';
+            listEl.innerHTML = '<div class="leaderboard-empty">Failed to load leaderboard.<br>Check connection and try again.</div>';
         }
     },
     
@@ -2325,33 +2326,36 @@ async notifyMiniAppReady() {
         const listEl = document.getElementById('leaderboardList');
         
         // Update my stats
-        if (this.walletConnected) {
+        if (this.farcasterUser) {
             document.getElementById('myBestScore').textContent = this.myBestScores[mode].toLocaleString();
             const rank = this.myRanks[mode];
             document.getElementById('myRank').textContent = rank > 0 ? `Rank #${rank}` : 'Not ranked yet';
         }
         
-        if (data.length === 0) {
+        if (!data || data.length === 0) {
             listEl.innerHTML = '<div class="leaderboard-empty">No scores yet.<br>Be the first to submit!</div>';
             return;
         }
         
+        const myFid = this.farcasterUser ? String(this.farcasterUser.fid) : null;
+        
         let html = '';
         data.forEach((entry, index) => {
             const rank = index + 1;
-            const isMe = this.walletAddress && entry.player.toLowerCase() === this.walletAddress.toLowerCase();
+            const isMe = myFid && String(entry.fid) === myFid;
             const rankClass = rank === 1 ? 'top1' : rank === 2 ? 'top2' : rank === 3 ? 'top3' : '';
             const entryClass = `leaderboard-entry ${rankClass} ${isMe ? 'me' : ''}`;
             
-            const displayName = entry.nickname || this.shortenAddress(entry.player);
-            const shortAddr = this.shortenAddress(entry.player);
+            const pfpHtml = entry.pfpUrl 
+                ? `<img class="leaderboard-pfp" src="${this.escapeHtml(entry.pfpUrl)}" alt="" onerror="this.style.display='none'">`
+                : `<div class="leaderboard-pfp-placeholder">🥷</div>`;
             
             html += `
                 <div class="${entryClass}">
                     <div class="leaderboard-rank ${rankClass}">${rank <= 3 ? ['🥇', '🥈', '🥉'][rank - 1] : '#' + rank}</div>
+                    ${pfpHtml}
                     <div class="leaderboard-player">
-                        <div class="leaderboard-name">${this.escapeHtml(displayName)}</div>
-                        ${entry.nickname ? `<div class="leaderboard-address">${shortAddr}</div>` : ''}
+                        <div class="leaderboard-name">${this.escapeHtml(entry.username)}</div>
                     </div>
                     <div class="leaderboard-score">${entry.score.toLocaleString()}</div>
                 </div>
@@ -2371,52 +2375,10 @@ async notifyMiniAppReady() {
         return div.innerHTML;
     },
     
-    async saveNickname() {
-        if (!this.walletConnected) {
-            alert('Please connect your wallet first!');
-            return;
-        }
-        
-        const nickname = document.getElementById('nicknameInput').value.trim();
-        if (nickname.length > 20) {
-            alert('Nickname too long (max 20 characters)');
-            return;
-        }
-        
-        const btn = document.getElementById('nicknameBtn');
-        btn.disabled = true;
-        btn.textContent = '...';
-        
-        try {
-            const shopContract = new ethers.Contract(this.SHOP_CONTRACT_ADDRESS, this.SHOP_ABI, this.signer);
-            const tx = await shopContract.setNickname(nickname);
-            await tx.wait();
-            
-            this.currentNickname = nickname;
-            btn.textContent = '✓';
-            
-            setTimeout(() => {
-                btn.textContent = 'Save';
-                btn.disabled = false;
-            }, 2000);
-            
-            // Reload leaderboard to show updated name
-            this.loadLeaderboard();
-            
-        } catch (error) {
-            console.error('Failed to save nickname:', error);
-            btn.textContent = 'Error';
-            setTimeout(() => {
-                btn.textContent = 'Save';
-                btn.disabled = false;
-            }, 2000);
-        }
-    },
-    
     // Show submit score modal after game over
     showSubmitScoreModal() {
-        // Only show if contract is configured
-        if (this.SHOP_CONTRACT_ADDRESS === '0x0000000000000000000000000000000000000000') {
+        if (!this.farcasterUser) {
+            // Not in MiniApp — can't submit
             return;
         }
         
@@ -2425,19 +2387,15 @@ async notifyMiniAppReady() {
         const bestScore = this.myBestScores[mode];
         
         document.getElementById('submitScoreValue').textContent = score.toLocaleString();
-        document.getElementById('submitNickname').value = this.currentNickname || '';
         document.getElementById('submitStatus').textContent = '';
         document.getElementById('submitBtn').disabled = false;
+        document.getElementById('shareBtn').style.display = 'none';
         
-        // Show if it's a new personal best or no best yet
         if (score > bestScore) {
             document.getElementById('submitBestText').textContent = bestScore > 0 ? 
                 `Previous best: ${bestScore.toLocaleString()}` : 
                 'Your first score in this mode!';
             document.getElementById('submitScoreModal').classList.add('show');
-        } else {
-            document.getElementById('submitBestText').textContent = `Best: ${bestScore.toLocaleString()} (not a new record)`;
-            // Don't show modal if not a new record
         }
     },
     
@@ -2446,111 +2404,79 @@ async notifyMiniAppReady() {
         document.getElementById('submitScoreModal').classList.remove('show');
     },
     
-    async submitScoreOnchain() {
-        if (!this.walletConnected) {
-            await this.connectWallet();
-            if (!this.walletConnected) return;
-        }
+    async submitScore() {
+        if (!this.farcasterUser) return;
         
-        const mode = this.mode === 'classic' ? 0 : 1;
+        const modeName = this.mode || 'classic';
+        const modeIdx = modeName === 'classic' ? 0 : 1;
         const score = this.score;
-        const nickname = document.getElementById('submitNickname').value.trim();
         
         const btn = document.getElementById('submitBtn');
         const statusEl = document.getElementById('submitStatus');
         
         btn.disabled = true;
-        statusEl.textContent = 'Verifying gameplay...';
+        statusEl.textContent = 'Submitting...';
         
         try {
-            const shopContract = new ethers.Contract(this.SHOP_CONTRACT_ADDRESS, this.SHOP_ABI, this.signer);
+            const response = await fetch(this.LEADERBOARD_API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    fid: this.farcasterUser.fid,
+                    username: this.farcasterUser.username,
+                    pfpUrl: this.farcasterUser.pfpUrl,
+                    score: score,
+                    mode: modeName,
+                }),
+            });
             
-            // Check if verification is required
-            let verifierAddress = '0x0000000000000000000000000000000000000000';
-            try {
-                verifierAddress = await shopContract.scoreVerifier();
-            } catch (e) {
-                console.log('Could not get verifier, using unsafe submit');
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to submit');
             }
-            
-            let nonce = 0;
-            let signature = '0x';
-            
-            // If verifier is set and server is configured, verify first
-            if (verifierAddress !== '0x0000000000000000000000000000000000000000' && 
-                this.VERIFICATION_SERVER && 
-                !this.VERIFICATION_SERVER.includes('your-server')) {
-                
-                statusEl.textContent = 'Verifying with server...';
-                
-                // Send game session to verification server
-                const verifyResponse = await fetch(`${this.VERIFICATION_SERVER}/verify`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        playerAddress: this.walletAddress,
-                        mode: this.mode,
-                        score: score,
-                        actions: this.gameSession?.actions || [],
-                        startTime: this.gameSession?.startTime || Date.now() - 60000,
-                        endTime: this.gameSession?.endTime || Date.now(),
-                        finalLives: this.gameSession?.finalLives || 0,
-                        version: this.gameSession?.version || '1.0'
-                    })
-                });
-                
-                if (!verifyResponse.ok) {
-                    const errorData = await verifyResponse.json();
-                    throw new Error(errorData.error || 'Verification failed');
-                }
-                
-                const verifyData = await verifyResponse.json();
-                nonce = verifyData.nonce;
-                signature = verifyData.signature;
-                
-                console.log('Score verified by server:', verifyData);
-            }
-            
-            // Save nickname first if provided and different
-            if (nickname && nickname !== this.currentNickname) {
-                statusEl.textContent = 'Saving nickname...';
-                const nickTx = await shopContract.setNickname(nickname);
-                await nickTx.wait();
-                this.currentNickname = nickname;
-            }
-            
-            // Submit score
-            statusEl.textContent = 'Submitting to blockchain...';
-            
-            let tx;
-            if (verifierAddress !== '0x0000000000000000000000000000000000000000' && signature !== '0x') {
-                // Use verified submit with signature
-                tx = await shopContract.submitScore(mode, score, nonce, signature);
-            } else {
-                // Use unsafe submit (only works if verifier not set)
-                tx = await shopContract.submitScoreUnsafe(mode, score);
-            }
-            
-            statusEl.textContent = 'Waiting for confirmation...';
-            await tx.wait();
             
             // Update local state
-            this.myBestScores[mode] = score;
+            if (data.newBest) {
+                this.myBestScores[modeIdx] = score;
+                if (data.rank) this.myRanks[modeIdx] = data.rank;
+                statusEl.textContent = data.rank ? `🎉 Rank #${data.rank}!` : '🎉 Score submitted!';
+            } else {
+                statusEl.textContent = `Best: ${data.currentBest.toLocaleString()}`;
+            }
             
-            statusEl.textContent = 'Score submitted! 🎉';
-            
-            setTimeout(() => {
-                document.getElementById('submitScoreModal').classList.remove('show');
-            }, 1500);
+            // Show share button
+            document.getElementById('shareBtn').style.display = 'inline-block';
+            btn.style.display = 'none';
             
         } catch (error) {
             console.error('Failed to submit score:', error);
-            let errorMsg = error.reason || error.message || 'Failed';
-            if (errorMsg.includes('Validation failed')) {
-                errorMsg = 'Score verification failed - suspicious gameplay detected';
-            }
-            statusEl.textContent = 'Error: ' + errorMsg;
+            statusEl.textContent = 'Error: ' + (error.message || 'Try again');
             btn.disabled = false;
+        }
+    },
+    
+    async shareScore() {
+        this.playClickSound();
+        const score = this.score;
+        const modeName = this.mode === 'classic' ? 'Classic' : 'Arcade';
+        const text = `I scored ${score.toLocaleString()} in Base Ninja ${modeName} mode 🥷⚔️\n\nThink you can beat me?`;
+        const gameUrl = 'https://base-ninja-game.vercel.app';
+        
+        try {
+            if (window.miniapp && window.miniapp.sdk) {
+                // Cast via Farcaster through MiniKit
+                await window.miniapp.sdk.actions.composeCast({
+                    text: text,
+                    embeds: [gameUrl],
+                });
+            } else {
+                // Fallback: copy to clipboard
+                await navigator.clipboard.writeText(text + '\n' + gameUrl);
+                document.getElementById('submitStatus').textContent = 'Copied to clipboard!';
+            }
+        } catch (e) {
+            console.log('Share error:', e);
         }
     },
     
