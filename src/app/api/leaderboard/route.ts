@@ -10,32 +10,52 @@ export async function GET(request: NextRequest) {
 
     const key = `leaderboard:${mode}`;
 
-    // Get top scores (highest first) from sorted set
-    const topFids: string[] = await kv.zrange(key, 0, limit - 1, { rev: true });
+    // Get top scores with scores included
+    const rawResults = await kv.zrange(key, 0, limit - 1, { rev: true, withScores: true });
 
-    if (!topFids || topFids.length === 0) {
+    // rawResults is flat array: [member1, score1, member2, score2, ...]
+    // or could be array of objects depending on KV version
+    const entries: { fid: string; score: number }[] = [];
+
+    if (rawResults.length === 0) {
       return NextResponse.json({ scores: [] });
     }
 
-    // Fetch user data for each FID
-    const pipeline = kv.pipeline();
-    for (const fid of topFids) {
-      pipeline.hgetall(`user:${fid}`);
-      pipeline.zscore(key, fid);
+    // Detect format: if first element has a 'member' or 'score' property, it's object format
+    if (typeof rawResults[0] === 'object' && rawResults[0] !== null && 'member' in rawResults[0]) {
+      // Object format: [{member, score}, ...]
+      for (const item of rawResults as any[]) {
+        entries.push({ fid: String(item.member), score: Number(item.score) });
+      }
+    } else {
+      // Flat array format: [member1, score1, member2, score2, ...]
+      for (let i = 0; i < rawResults.length; i += 2) {
+        entries.push({
+          fid: String(rawResults[i]),
+          score: Number(rawResults[i + 1]),
+        });
+      }
     }
-    const results = await pipeline.exec();
 
+    // Fetch user data for each FID
     const scores = [];
-    for (let i = 0; i < topFids.length; i++) {
-      const userData = results[i * 2] as Record<string, string> | null;
-      const score = results[i * 2 + 1] as number | null;
-      if (userData && score !== null) {
+    for (const entry of entries) {
+      try {
+        const userData = await kv.hgetall(`user:${entry.fid}`);
         scores.push({
-          fid: topFids[i],
-          username: userData.username || `fid:${topFids[i]}`,
-          pfpUrl: userData.pfpUrl || '',
-          score: Number(score),
-          timestamp: Number(userData[`best_${mode}_ts`] || 0),
+          fid: entry.fid,
+          username: userData ? String(userData.username || `fid:${entry.fid}`) : `fid:${entry.fid}`,
+          pfpUrl: userData ? String(userData.pfpUrl || '') : '',
+          score: entry.score,
+          timestamp: userData ? Number(userData[`best_${mode}_ts`] || 0) : 0,
+        });
+      } catch {
+        scores.push({
+          fid: entry.fid,
+          username: `fid:${entry.fid}`,
+          pfpUrl: '',
+          score: entry.score,
+          timestamp: 0,
         });
       }
     }
@@ -57,7 +77,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { fid, username, pfpUrl, score, mode } = body;
 
-    if (!fid || !score || !mode) {
+    if (!fid || score === undefined || !mode) {
       return NextResponse.json({ error: 'Missing required fields: fid, score, mode' }, { status: 400 });
     }
 
@@ -69,7 +89,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid score' }, { status: 400 });
     }
 
+    // Ensure all values are plain strings
     const fidStr = String(fid);
+    const usernameStr = String(username || `fid:${fidStr}`);
+    const pfpUrlStr = String(pfpUrl || '');
     const key = `leaderboard:${mode}`;
     const userKey = `user:${fidStr}`;
 
@@ -78,15 +101,16 @@ export async function POST(request: NextRequest) {
 
     // Only update if new score is higher
     if (currentBest === null || score > Number(currentBest)) {
-      const pipeline = kv.pipeline();
-      pipeline.zadd(key, { score: score, member: fidStr });
-      pipeline.hset(userKey, {
-        username: username || `fid:${fidStr}`,
-        pfpUrl: pfpUrl || '',
-        [`best_${mode}`]: score,
-        [`best_${mode}_ts`]: Date.now(),
+      // Update sorted set
+      await kv.zadd(key, { score: score, member: fidStr });
+
+      // Update user data as plain strings to avoid serialization issues
+      await kv.hset(userKey, {
+        username: usernameStr,
+        pfpUrl: pfpUrlStr,
+        [`best_${mode}`]: String(score),
+        [`best_${mode}_ts`]: String(Date.now()),
       });
-      await pipeline.exec();
 
       const rank = await kv.zrevrank(key, fidStr);
 
