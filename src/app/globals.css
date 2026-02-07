@@ -78,7 +78,7 @@ canvas { display: block; touch-action: none; }
 .wallet-options { display: flex; flex-direction: column; gap: 12px; }
 .wallet-option { background: rgba(255,255,255,0.05); border: 2px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 16px; display: flex; align-items: center; gap: 15px; cursor: pointer; transition: all 0.2s; }
 .wallet-option:hover { background: rgba(255,255,255,0.1); border-color: #0052FF; transform: translateX(5px); }
-.wallet-option-icon { font-size: 32px; width: 40px; text-align: center; }
+.wallet-option-icon { width: 36px; height: 36px; border-radius: 8px; object-fit: contain; flex-shrink: 0; }
 .wallet-option-info { flex: 1; }
 .wallet-option-name { font-size: 16px; font-weight: bold; color: #fff; margin-bottom: 2px; }
 .wallet-option-desc { font-size: 11px; color: #888; }
@@ -109,7 +109,8 @@ canvas { display: block; touch-action: none; }
 .leaderboard-entry.top2 { background: linear-gradient(135deg, rgba(192,192,192,0.15), rgba(192,192,192,0.05)); border-color: rgba(192,192,192,0.3); }
 .leaderboard-entry.top3 { background: linear-gradient(135deg, rgba(205,127,50,0.15), rgba(205,127,50,0.05)); border-color: rgba(205,127,50,0.3); }
 .leaderboard-entry.me { background: linear-gradient(135deg, rgba(0,82,255,0.2), rgba(0,82,255,0.05)); border-color: rgba(0,82,255,0.4); }
-.leaderboard-rank { width: 30px; font-size: 14px; font-weight: bold; color: #666; }
+.leaderboard-rank { min-width: 30px; font-size: 14px; font-weight: bold; color: #666; display: flex; align-items: center; justify-content: center; }
+.leaderboard-rank svg { display: block; }
 .leaderboard-rank.top1 { color: #ffd700; }
 .leaderboard-rank.top2 { color: #c0c0c0; }
 .leaderboard-rank.top3 { color: #cd7f32; }

@@ -188,31 +188,31 @@ export default function Home() {
             <div className="wallet-modal-subtitle">Choose your preferred wallet to connect</div>
             <div className="wallet-options">
               <div className="wallet-option" onClick={() => (window as any).Game?.connectMetaMask()}>
-                <div className="wallet-option-icon">🦊</div>
+                <img className="wallet-option-icon" src="/images/wallets/metamask.png" alt="MetaMask" />
                 <div className="wallet-option-info">
                   <div className="wallet-option-name">MetaMask</div>
-                  <div className="wallet-option-desc">Connect using MetaMask browser extension</div>
+                  <div className="wallet-option-desc">Browser extension</div>
                 </div>
               </div>
               <div className="wallet-option" onClick={() => (window as any).Game?.connectCoinbase()}>
-                <div className="wallet-option-icon" style={{color:'#0052FF',fontSize:'28px',fontWeight:'bold'}}>◆</div>
+                <img className="wallet-option-icon" src="/images/wallets/coinbase.png" alt="Coinbase" />
                 <div className="wallet-option-info">
                   <div className="wallet-option-name">Coinbase Wallet</div>
-                  <div className="wallet-option-desc">Connect using Coinbase Wallet</div>
+                  <div className="wallet-option-desc">Coinbase Wallet app</div>
                 </div>
               </div>
               <div className="wallet-option" onClick={() => (window as any).Game?.connectRabby()}>
-                <div className="wallet-option-icon" style={{fontSize:'28px'}}>🐰</div>
+                <img className="wallet-option-icon" src="/images/wallets/rabby.png" alt="Rabby" />
                 <div className="wallet-option-info">
                   <div className="wallet-option-name">Rabby Wallet</div>
-                  <div className="wallet-option-desc">Connect using Rabby Wallet</div>
+                  <div className="wallet-option-desc">Browser extension</div>
                 </div>
               </div>
               <div className="wallet-option" onClick={() => (window as any).Game?.connectInjected()}>
-                <div className="wallet-option-icon">🔗</div>
+                <img className="wallet-option-icon" src="/images/wallets/browser.png" alt="Browser" />
                 <div className="wallet-option-info">
                   <div className="wallet-option-name">Browser Wallet</div>
-                  <div className="wallet-option-desc">Connect any injected wallet</div>
+                  <div className="wallet-option-desc">Any injected wallet</div>
                 </div>
               </div>
             </div>
