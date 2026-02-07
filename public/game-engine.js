@@ -230,7 +230,7 @@ const Game = {
         this.loadPurchases(); // Load device-cached purchases (works without wallet)
         this.loop();
         
-        // Set device fallback immediately (sync) so farcasterUser is never null
+        // Set device fallback immediately — React will overwrite with real user via setFarcasterUser()
         let deviceId = localStorage.getItem('baseninja_device_id');
         if (!deviceId) {
             deviceId = 'dev_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
@@ -241,63 +241,23 @@ const Game = {
             username: 'Player ' + deviceId.substring(4, 8),
             pfpUrl: '',
         };
-        
-        // Then try to get real Farcaster identity (async, will override device fallback)
-        this.notifyMiniAppReady();
+        console.log('[BN] Device fallback set:', this.farcasterUser.username);
+    },
+    
+    // Called from React (page.tsx) when Farcaster SDK context is available
+    setFarcasterUser(user) {
+        if (user && user.fid) {
+            this.farcasterUser = {
+                fid: String(user.fid),
+                username: String(user.username || 'fid:' + user.fid),
+                pfpUrl: String(user.pfpUrl || ''),
+            };
+            console.log('[BN] setFarcasterUser:', this.farcasterUser.username, 'FID:', this.farcasterUser.fid);
+        }
     },
     
     
-async notifyMiniAppReady() {
-    try {
-        // Farcaster Frame SDK loaded via CDN exposes window.frame.sdk
-        // MiniKit may expose window.miniapp.sdk or window.sdk
-        const sdk = window.frame?.sdk || window.miniapp?.sdk || window.sdk;
-        
-        if (!sdk) {
-            console.log('[BN] No MiniApp SDK found. window.frame:', typeof window.frame, 'window.miniapp:', typeof window.miniapp);
-            return;
-        }
-        
-        // Call ready() to dismiss splash screen
-        if (sdk.actions?.ready) {
-            await sdk.actions.ready();
-        }
-        console.log('[BN] SDK ready. Getting context...');
-        
-        // sdk.context is a Promise in the Farcaster Frame SDK
-        let ctx = null;
-        try {
-            if (typeof sdk.context === 'function') {
-                ctx = await sdk.context();
-            } else {
-                ctx = await sdk.context;  // It's a Promise/getter
-            }
-        } catch (e) {
-            console.log('[BN] Context fetch error:', e);
-        }
-        
-        console.log('[BN] Raw context:', JSON.stringify(ctx)?.substring(0, 500));
-        
-        if (!ctx) return;
-        
-        // Extract user - could be in ctx.user or directly on ctx
-        const user = ctx.user || ctx;
-        const fid = user?.fid;
-        
-        if (fid) {
-            this.farcasterUser = {
-                fid: String(fid),
-                username: String(user.username || user.displayName || `fid:${fid}`),
-                pfpUrl: String(user.pfpUrl || user.pfp_url || ''),
-            };
-            console.log('[BN] Farcaster user:', this.farcasterUser.username, 'FID:', this.farcasterUser.fid, 'PFP:', this.farcasterUser.pfpUrl);
-        } else {
-            console.log('[BN] No FID in context. Keys:', Object.keys(ctx));
-        }
-    } catch (e) {
-        console.log('[BN] SDK error:', e);
-    }
-},
+    // SDK context is now handled by React (page.tsx) via setFarcasterUser()
     
     resize() {
         this.W = innerWidth; this.H = innerHeight;
@@ -2504,20 +2464,16 @@ async notifyMiniAppReady() {
         const gameUrl = 'https://base-ninja-game.vercel.app';
         
         try {
-            const sdk = window.frame?.sdk || window.miniapp?.sdk || window.sdk;
-            if (sdk && sdk.actions?.composeCast) {
-                // Cast via Farcaster through SDK
-                await sdk.actions.composeCast({
-                    text: text,
-                    embeds: [gameUrl],
-                });
+            if (window.__composeCast) {
+                // Use React bridge to Farcaster SDK
+                await window.__composeCast(text, [gameUrl]);
             } else {
                 // Fallback: copy to clipboard
                 await navigator.clipboard.writeText(text + '\n' + gameUrl);
                 document.getElementById('submitStatus').textContent = 'Copied to clipboard!';
             }
         } catch (e) {
-            console.log('Share error:', e);
+            console.log('[BN] Share error:', e);
         }
     },
     
