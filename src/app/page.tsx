@@ -109,7 +109,7 @@ export default function Home() {
 
   return (
     <>
-      {/* Base Account SDK for payments */}
+      {/* Base Account SDK for payments (Base App mode) */}
       <Script src="/base-account.min.js" strategy="beforeInteractive" />
       {/* Game Engine Script */}
       <Script src="/game-engine.js" strategy="afterInteractive" />
