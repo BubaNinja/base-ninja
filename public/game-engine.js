@@ -722,7 +722,7 @@ const Game = {
     },
     
     loadImages() {
-        const files = {BTC:'btc.png',ETH:'eth.png',XRP:'xrp.webp',USDT:'usdt.png',SOL:'sol.png',USDC:'usdc.png',TRX:'trx.png',BASE:'base.png',PENGU:'pengu.png',HYPE:'hype.png'};
+        const files = {BTC:'btc.png',ETH:'eth.png',XRP:'xrp.png',USDT:'usdt.png',SOL:'sol.png',USDC:'usdc.png',TRX:'trx.png',BASE:'base.png',PENGU:'pengu.png',HYPE:'hype.png'};
         Object.entries(files).forEach(([id,file]) => {
             const img = new Image();
             img.src = '/images/' + file;
