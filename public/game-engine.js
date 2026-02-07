@@ -1866,6 +1866,11 @@ const Game = {
         await this.connectWithProvider('injected');
     },
     
+    async connectRabby() {
+        this.closeWalletModal();
+        await this.connectWithProvider('rabby');
+    },
+    
     async connectWithProvider(walletType) {
         if (!window.ethereum) {
             if (walletType === 'metamask') {
@@ -1874,6 +1879,9 @@ const Game = {
             } else if (walletType === 'coinbase') {
                 alert('Coinbase Wallet not detected. Please install Coinbase Wallet.');
                 window.open('https://www.coinbase.com/wallet', '_blank');
+            } else if (walletType === 'rabby') {
+                alert('Rabby Wallet not detected. Please install Rabby Wallet.');
+                window.open('https://rabby.io/', '_blank');
             } else {
                 alert('No wallet detected. Please install MetaMask or Coinbase Wallet.');
             }
@@ -1891,6 +1899,9 @@ const Game = {
                 } else if (walletType === 'coinbase') {
                     const coinbase = window.ethereum.providers.find(p => p.isCoinbaseWallet);
                     if (coinbase) selectedProvider = coinbase;
+                } else if (walletType === 'rabby') {
+                    const rabby = window.ethereum.providers.find(p => p.isRabby);
+                    if (rabby) selectedProvider = rabby;
                 }
             }
             
