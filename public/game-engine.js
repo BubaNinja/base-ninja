@@ -1967,11 +1967,13 @@ const Game = {
     updateWalletButton() {
         const btn = document.getElementById('walletBtn');
         const addrDiv = document.getElementById('walletAddress');
+        const disconnectBtn = document.getElementById('disconnectBtn');
         
         // In Base App mode, wallet button not needed (base.pay handles it)
         if (this.isBaseApp) {
             btn.style.display = 'none';
             addrDiv.style.display = 'none';
+            if (disconnectBtn) disconnectBtn.style.display = 'none';
             return;
         }
         
@@ -1979,11 +1981,37 @@ const Game = {
             btn.textContent = 'Connected ✓';
             btn.classList.add('connected');
             addrDiv.textContent = this.walletAddress.slice(0, 6) + '...' + this.walletAddress.slice(-4);
+            if (disconnectBtn) disconnectBtn.style.display = 'flex';
         } else {
             btn.textContent = 'Connect Wallet';
             btn.classList.remove('connected');
             addrDiv.textContent = '';
+            if (disconnectBtn) disconnectBtn.style.display = 'none';
         }
+    },
+    
+    disconnectWallet() {
+        this.playClickSound();
+        this.walletConnected = false;
+        this.walletAddress = null;
+        this.provider = null;
+        this.signer = null;
+        
+        // Reset identity to device fallback
+        let deviceId = localStorage.getItem('baseninja_device_id');
+        if (!deviceId) {
+            deviceId = 'dev_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+            localStorage.setItem('baseninja_device_id', deviceId);
+        }
+        this.farcasterUser = {
+            fid: deviceId,
+            username: 'Player ' + deviceId.substring(4, 8),
+            pfpUrl: '',
+        };
+        
+        console.log('[BN] Wallet disconnected');
+        this.updateWalletButton();
+        this.renderShop();
     },
     
     // Load purchases from localStorage for current wallet or device
