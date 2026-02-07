@@ -173,7 +173,7 @@ export default function Home() {
           <button className="btn btn-primary" id="buyEverythingBtn" onClick={() => (window as any).Game?.buyEverything()} style={{marginTop:'20px',display:'none'}}>
             BUY EVERYTHING<small id="totalPrice">0 USDC</small>
           </button>
-          <div className="buttons" style={{marginTop:'15px'}}>
+          <div className="buttons" style={{marginTop:'15px',display:'flex',justifyContent:'center'}}>
             <button className="btn btn-secondary" onClick={() => { (window as any).Game?.playClickSound(); (window as any).Game?.hideShop(); }}>BACK</button>
           </div>
         </div>
@@ -198,6 +198,13 @@ export default function Home() {
                   <div className="wallet-option-desc">Connect using Coinbase Wallet</div>
                 </div>
               </div>
+              <div className="wallet-option" onClick={() => (window as any).Game?.connectRabby()}>
+                <div className="wallet-option-icon" style={{fontSize:'28px'}}>🐰</div>
+                <div className="wallet-option-info">
+                  <div className="wallet-option-name">Rabby Wallet</div>
+                  <div className="wallet-option-desc">Connect using Rabby Wallet</div>
+                </div>
+              </div>
               <div className="wallet-option" onClick={() => (window as any).Game?.connectInjected()}>
                 <div className="wallet-option-icon">🔗</div>
                 <div className="wallet-option-info">
@@ -218,7 +225,7 @@ export default function Home() {
             <div className="modal-status" id="modalStatus"></div>
             <div className="modal-buttons">
               <button className="modal-btn cancel" onClick={() => (window as any).Game?.closePurchaseModal()}>Cancel</button>
-              <button className="modal-btn buy" id="buyBtn" onClick={() => (window as any).Game?.confirmPurchase()}>Buy</button>
+              <button className="modal-btn buy" id="buyBtn">Buy</button>
             </div>
           </div>
         </div>
