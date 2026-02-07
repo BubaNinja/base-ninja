@@ -66,6 +66,8 @@ canvas { display: block; touch-action: none; }
 .wallet-btn:hover { transform: scale(1.05); box-shadow: 0 4px 15px rgba(0,82,255,0.4); }
 .wallet-btn.connected { background: linear-gradient(135deg, #00C853, #69F0AE); }
 .wallet-address { font-size: 11px; color: #888; margin-top: 5px; font-family: monospace; text-align: center; }
+.wallet-disconnect-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #ff5555; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; padding: 0; }
+.wallet-disconnect-btn:hover { background: rgba(255,85,85,0.2); border-color: #ff5555; }
 #shop .btn { display: block; margin: 30px auto 0; max-width: 300px; }
 
 #walletModal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: none; justify-content: center; align-items: center; z-index: 2000; }

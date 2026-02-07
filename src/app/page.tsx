@@ -169,11 +169,14 @@ export default function Home() {
             </button>
           </div>
           <button className="wallet-btn" id="walletBtn" onClick={() => (window as any).Game?.connectWallet()}>Connect Wallet</button>
-          <div className="wallet-address" id="walletAddress"></div>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'10px'}}>
+            <div className="wallet-address" id="walletAddress"></div>
+            <button className="wallet-disconnect-btn" id="disconnectBtn" onClick={() => (window as any).Game?.disconnectWallet()} style={{display:'none'}}>✕</button>
+          </div>
           <button className="btn btn-primary" id="buyEverythingBtn" onClick={() => (window as any).Game?.buyEverything()} style={{marginTop:'20px',display:'none'}}>
             BUY EVERYTHING<small id="totalPrice">0 USDC</small>
           </button>
-          <div className="buttons" style={{marginTop:'15px',display:'flex',justifyContent:'center'}}>
+          <div style={{marginTop:'15px',display:'flex',justifyContent:'center'}}>
             <button className="btn btn-secondary" onClick={() => { (window as any).Game?.playClickSound(); (window as any).Game?.hideShop(); }}>BACK</button>
           </div>
         </div>
