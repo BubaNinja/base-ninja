@@ -2511,7 +2511,7 @@ const Game = {
             
             html += `
                 <div class="${entryClass}">
-                    <div class="leaderboard-rank ${rankClass}">${rank <= 3 ? ['🥇', '🥈', '🥉'][rank - 1] : '#' + rank}</div>
+                    <div class="leaderboard-rank ${rankClass}">${rank <= 3 ? this.getMedalSVG(rank) : '#' + rank}</div>
                     ${pfpHtml}
                     <div class="leaderboard-player">
                         <div class="leaderboard-name">${this.escapeHtml(entry.username)}</div>
@@ -2526,6 +2526,22 @@ const Game = {
     
     shortenAddress(addr) {
         return addr.slice(0, 6) + '...' + addr.slice(-4);
+    },
+    
+    getMedalSVG(rank) {
+        const colors = {
+            1: { medal: '#FFD700', ribbon: '#FF6B00', shine: '#FFF5CC', num: '#8B6914' },
+            2: { medal: '#C0C0C0', ribbon: '#6688AA', shine: '#F0F0F0', num: '#555' },
+            3: { medal: '#CD7F32', ribbon: '#AA3333', shine: '#EEBB88', num: '#6B3A10' },
+        };
+        const c = colors[rank];
+        return `<svg width="26" height="32" viewBox="0 0 26 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 2L13 10L18 2" fill="${c.ribbon}" opacity="0.9"/>
+            <path d="M10 2L13 8L16 2" fill="${c.ribbon}" opacity="0.6"/>
+            <circle cx="13" cy="19" r="11" fill="${c.medal}" stroke="${c.num}" stroke-width="0.5" opacity="0.95"/>
+            <circle cx="13" cy="19" r="8.5" fill="none" stroke="${c.shine}" stroke-width="0.7" opacity="0.4"/>
+            <text x="13" y="23" text-anchor="middle" font-size="12" font-weight="bold" fill="${c.num}" font-family="sans-serif">${rank}</text>
+        </svg>`;
     },
     
     escapeHtml(text) {
