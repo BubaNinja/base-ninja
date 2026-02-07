@@ -2530,17 +2530,15 @@ const Game = {
     
     getMedalSVG(rank) {
         const colors = {
-            1: { medal: '#FFD700', ribbon: '#FF6B00', shine: '#FFF5CC', num: '#8B6914' },
-            2: { medal: '#C0C0C0', ribbon: '#6688AA', shine: '#F0F0F0', num: '#555' },
-            3: { medal: '#CD7F32', ribbon: '#AA3333', shine: '#EEBB88', num: '#6B3A10' },
+            1: { fill: '#FFD700', stroke: '#B8960F', inner: '#FFF3B0', text: '#7A5C00' },
+            2: { fill: '#C0C0C0', stroke: '#8A8A8A', inner: '#E8E8E8', text: '#444' },
+            3: { fill: '#CD7F32', stroke: '#8B5A1B', inner: '#E8A862', text: '#5C2E00' },
         };
         const c = colors[rank];
-        return `<svg width="26" height="32" viewBox="0 0 26 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M8 2L13 10L18 2" fill="${c.ribbon}" opacity="0.9"/>
-            <path d="M10 2L13 8L16 2" fill="${c.ribbon}" opacity="0.6"/>
-            <circle cx="13" cy="19" r="11" fill="${c.medal}" stroke="${c.num}" stroke-width="0.5" opacity="0.95"/>
-            <circle cx="13" cy="19" r="8.5" fill="none" stroke="${c.shine}" stroke-width="0.7" opacity="0.4"/>
-            <text x="13" y="23" text-anchor="middle" font-size="12" font-weight="bold" fill="${c.num}" font-family="sans-serif">${rank}</text>
+        return `<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="14" cy="14" r="13" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1"/>
+            <circle cx="14" cy="14" r="10" fill="none" stroke="${c.inner}" stroke-width="0.8" opacity="0.5"/>
+            <text x="14" y="19" text-anchor="middle" font-size="14" font-weight="700" fill="${c.text}" font-family="'Helvetica Neue',Arial,sans-serif">${rank}</text>
         </svg>`;
     },
     
