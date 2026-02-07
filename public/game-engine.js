@@ -21,9 +21,20 @@ const Game = {
     signer: null,
     pendingPurchase: null,
     
-    // Farcaster / MiniKit identity
+    // Environment detection
+    isBaseApp: false, // true = Base App (Farcaster MiniApp), false = browser/web
+    
+    // Farcaster / MiniKit identity (also used for web wallet users)
     farcasterUser: null, // { fid, username, pfpUrl }
     LEADERBOARD_API: '/api/leaderboard',
+    
+    // USDC ERC20 ABI (for direct transfers in web mode)
+    USDC_ABI: [
+        'function transfer(address to, uint256 amount) external returns (bool)',
+        'function approve(address spender, uint256 amount) external returns (bool)',
+        'function allowance(address owner, address spender) external view returns (uint256)',
+        'function balanceOf(address account) external view returns (uint256)',
+    ],
     
     // Base chain config
     BASE_CHAIN_ID: 8453,
@@ -253,6 +264,44 @@ const Game = {
                 pfpUrl: String(user.pfpUrl || ''),
             };
             console.log('[BN] setFarcasterUser:', this.farcasterUser.username, 'FID:', this.farcasterUser.fid);
+        }
+    },
+    
+    // Called from React (page.tsx) — sets Base App vs web browser mode
+    setIsBaseApp(val) {
+        this.isBaseApp = !!val;
+        console.log('[BN] isBaseApp:', this.isBaseApp);
+        // Update UI based on environment
+        this.updateShopForEnvironment();
+    },
+    
+    // When web user connects wallet, use wallet address as identity for leaderboard
+    setWebWalletIdentity() {
+        if (!this.isBaseApp && this.walletAddress) {
+            const short = this.walletAddress.slice(0, 6) + '...' + this.walletAddress.slice(-4);
+            this.farcasterUser = {
+                fid: this.walletAddress.toLowerCase(), // wallet address as ID
+                username: short,
+                pfpUrl: '',
+            };
+            console.log('[BN] Web identity set:', short);
+        }
+    },
+    
+    // Show/hide wallet button based on environment
+    updateShopForEnvironment() {
+        const walletBtn = document.getElementById('walletBtn');
+        const walletAddr = document.getElementById('walletAddress');
+        if (!walletBtn) return;
+        
+        if (this.isBaseApp) {
+            // Base App: hide wallet button — base.pay() handles everything
+            walletBtn.style.display = 'none';
+            walletAddr.style.display = 'none';
+        } else {
+            // Web: show wallet button — needed for USDC transfer
+            walletBtn.style.display = '';
+            walletAddr.style.display = '';
         }
     },
     
@@ -722,7 +771,7 @@ const Game = {
     },
     
     loadImages() {
-        const files = {BTC:'btc.png',ETH:'eth.png',XRP:'xrp.png',USDT:'usdt.png',SOL:'sol.png',USDC:'usdc.png',TRX:'trx.png',BASE:'base.png',PENGU:'pengu.png',HYPE:'hype.png'};
+        const files = {BTC:'btc.png',ETH:'eth.png',XRP:'xrp.webp',USDT:'usdt.png',SOL:'sol.png',USDC:'usdc.png',TRX:'trx.png',BASE:'base.png',PENGU:'pengu.png',HYPE:'hype.png'};
         Object.entries(files).forEach(([id,file]) => {
             const img = new Image();
             img.src = '/images/' + file;
@@ -1885,6 +1934,9 @@ const Game = {
             this.walletAddress = await this.signer.getAddress();
             this.walletConnected = true;
             
+            // For web users: set wallet address as leaderboard identity
+            this.setWebWalletIdentity();
+            
             // Load saved purchases for this wallet
             this.loadPurchases();
             
@@ -1904,6 +1956,13 @@ const Game = {
     updateWalletButton() {
         const btn = document.getElementById('walletBtn');
         const addrDiv = document.getElementById('walletAddress');
+        
+        // In Base App mode, wallet button not needed (base.pay handles it)
+        if (this.isBaseApp) {
+            btn.style.display = 'none';
+            addrDiv.style.display = 'none';
+            return;
+        }
         
         if (this.walletConnected && this.walletAddress) {
             btn.textContent = 'Connected ✓';
@@ -2081,7 +2140,20 @@ const Game = {
         document.getElementById('modalName').textContent = item.name;
         document.getElementById('modalPrice').textContent = item.price + ' USDC';
         document.getElementById('modalStatus').textContent = '';
-        document.getElementById('buyBtn').disabled = false;
+        
+        const buyBtn = document.getElementById('buyBtn');
+        buyBtn.disabled = false;
+        
+        // Web mode: show wallet warning if not connected
+        if (!this.isBaseApp && !this.walletConnected) {
+            document.getElementById('modalStatus').textContent = '⚠️ Connect wallet first';
+            buyBtn.textContent = 'Connect Wallet';
+            buyBtn.onclick = () => { this.closePurchaseModal(); this.connectWallet(); };
+        } else {
+            buyBtn.textContent = 'Buy';
+            buyBtn.onclick = () => this.confirmPurchase();
+        }
+        
         document.getElementById('purchaseModal').classList.add('show');
     },
     
@@ -2103,22 +2175,56 @@ const Game = {
         const isBatch = this.pendingPurchase.type === 'batch';
         
         try {
-            // Use Base Pay SDK - handles wallet, USDC transfer, gas sponsorship
-            if (typeof window.base === 'undefined' || typeof window.base.pay !== 'function') {
-                throw new Error('Base Pay SDK not loaded. Please refresh the page.');
-            }
-            
             const amount = isBatch 
                 ? this.pendingPurchase.totalPrice.toString()
                 : this.pendingPurchase.item.price.toString();
             
-            const payment = await window.base.pay({
-                amount,
-                to: this.RECEIVER_ADDRESS,
-                testnet: false
-            });
+            if (this.isBaseApp) {
+                // ========== BASE APP PATH: Use Base Pay SDK ==========
+                if (typeof window.base === 'undefined' || typeof window.base.pay !== 'function') {
+                    throw new Error('Base Pay SDK not loaded. Please refresh the page.');
+                }
+                
+                const payment = await window.base.pay({
+                    amount,
+                    to: this.RECEIVER_ADDRESS,
+                    testnet: false
+                });
+                
+                console.log('Base Pay successful:', payment);
+                
+            } else {
+                // ========== WEB PATH: Direct USDC transfer on Base ==========
+                if (!this.walletConnected || !this.signer) {
+                    statusEl.textContent = 'Please connect your wallet first';
+                    buyBtn.disabled = false;
+                    return;
+                }
+                
+                statusEl.textContent = 'Checking USDC balance...';
+                
+                const usdc = new ethers.Contract(this.USDC_ADDRESS, this.USDC_ABI, this.signer);
+                const amountWei = ethers.parseUnits(amount, 6); // USDC has 6 decimals
+                
+                // Check balance
+                const balance = await usdc.balanceOf(this.walletAddress);
+                if (balance < amountWei) {
+                    const balFormatted = ethers.formatUnits(balance, 6);
+                    throw new Error(`Insufficient USDC. You have ${balFormatted} USDC, need ${amount} USDC.`);
+                }
+                
+                statusEl.textContent = 'Confirm in your wallet...';
+                
+                // Direct USDC transfer to receiver
+                const tx = await usdc.transfer(this.RECEIVER_ADDRESS, amountWei);
+                
+                statusEl.textContent = 'Waiting for confirmation...';
+                await tx.wait();
+                
+                console.log('USDC transfer confirmed:', tx.hash);
+            }
             
-            console.log('Payment successful:', payment);
+            // ========== COMMON: Unlock items ==========
             statusEl.textContent = 'Payment confirmed! Unlocking...';
             
             if (isBatch) {
@@ -2250,7 +2356,20 @@ const Game = {
         document.getElementById('modalName').textContent = name;
         document.getElementById('modalPrice').textContent = totalPrice + ' USDC';
         document.getElementById('modalStatus').textContent = '';
-        document.getElementById('buyBtn').disabled = false;
+        
+        const buyBtn = document.getElementById('buyBtn');
+        buyBtn.disabled = false;
+        
+        // Web mode: show wallet warning if not connected
+        if (!this.isBaseApp && !this.walletConnected) {
+            document.getElementById('modalStatus').textContent = '⚠️ Connect wallet first';
+            buyBtn.textContent = 'Connect Wallet';
+            buyBtn.onclick = () => { this.closePurchaseModal(); this.connectWallet(); };
+        } else {
+            buyBtn.textContent = 'Buy';
+            buyBtn.onclick = () => this.confirmPurchase();
+        }
+        
         document.getElementById('purchaseModal').classList.add('show');
     },
     
@@ -2465,10 +2584,13 @@ const Game = {
         
         try {
             if (window.__composeCast) {
-                // Use React bridge to Farcaster SDK
+                // Base App: Use Farcaster composeCast
                 await window.__composeCast(text, gameUrl);
+            } else if (navigator.share) {
+                // Web mobile: native share dialog
+                await navigator.share({ title: 'Base Ninja', text: text, url: gameUrl });
             } else {
-                // Fallback: copy to clipboard
+                // Web desktop: copy to clipboard
                 await navigator.clipboard.writeText(text + '\n' + gameUrl);
                 document.getElementById('submitStatus').textContent = 'Copied to clipboard!';
             }
