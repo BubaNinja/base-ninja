@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
-import Script from 'next/script';
 import './globals.css';
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://base-ninja.vercel.app';
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://base-ninja-game.vercel.app';
 
 export const metadata: Metadata = {
   title: 'Base Ninja - Slice the Onchain',
@@ -35,18 +34,6 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <head>
-        {/* Ethers.js for wallet/contract interactions */}
-        <Script
-          src="https://cdn.jsdelivr.net/npm/ethers@6.9.0/dist/ethers.umd.min.js"
-          strategy="beforeInteractive"
-        />
-        {/* Farcaster MiniApp SDK */}
-        <Script
-          src="https://cdn.jsdelivr.net/npm/@farcaster/miniapp-sdk/dist/index.min.js"
-          strategy="beforeInteractive"
-        />
-      </head>
       <body>{children}</body>
     </html>
   );
