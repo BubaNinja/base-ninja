@@ -2466,7 +2466,7 @@ const Game = {
         try {
             if (window.__composeCast) {
                 // Use React bridge to Farcaster SDK
-                await window.__composeCast(text, [gameUrl]);
+                await window.__composeCast(text, gameUrl);
             } else {
                 // Fallback: copy to clipboard
                 await navigator.clipboard.writeText(text + '\n' + gameUrl);
