@@ -7,7 +7,9 @@ export default function Home() {
   const sdkRef = useRef<any>(null);
 
   useEffect(() => {
-    // 1. Load Farcaster MiniApp SDK and get user context
+    let isBaseApp = false;
+
+    // 1. Try to load Farcaster MiniApp SDK and detect Base App
     const initSDK = async () => {
       try {
         // Dynamic import - browser only package
@@ -20,11 +22,13 @@ export default function Home() {
         console.log('[BN] SDK context:', JSON.stringify(ctx)?.substring(0, 500));
         
         if (ctx?.user?.fid) {
+          isBaseApp = true;
           const user = ctx.user;
           // Pass to Game engine (might not be loaded yet — retry)
           const passUser = () => {
             const g = (window as any).Game;
             if (g && g.setFarcasterUser) {
+              g.setIsBaseApp(true);
               g.setFarcasterUser({
                 fid: String(user.fid),
                 username: String(user.username || user.displayName || 'fid:' + user.fid),
@@ -42,7 +46,8 @@ export default function Home() {
             setTimeout(() => clearInterval(retry), 5000);
           }
         } else {
-          console.log('[BN] No user in context');
+          console.log('[BN] No user in context — web mode');
+          setWebMode();
         }
 
         // Signal to host app that we're ready (hides splash screen)
@@ -62,7 +67,27 @@ export default function Home() {
           }
         };
       } catch (e) {
-        console.log('[BN] Not in MiniApp context:', e);
+        console.log('[BN] Not in MiniApp context — web mode:', e);
+        setWebMode();
+      }
+    };
+
+    // 2. Set web mode (browser / non-Base App)
+    const setWebMode = () => {
+      const passWebMode = () => {
+        const g = (window as any).Game;
+        if (g && g.setIsBaseApp) {
+          g.setIsBaseApp(false);
+          console.log('[BN] Web mode activated — wallet connect for payments');
+          return true;
+        }
+        return false;
+      };
+      if (!passWebMode()) {
+        const retry = setInterval(() => {
+          if (passWebMode()) clearInterval(retry);
+        }, 200);
+        setTimeout(() => clearInterval(retry), 5000);
       }
     };
 
