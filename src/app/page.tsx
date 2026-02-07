@@ -1,27 +1,80 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import Script from 'next/script';
 
 export default function Home() {
+  const sdkRef = useRef<any>(null);
+
   useEffect(() => {
-    // Initialize game once the engine script is loaded
-    // The game-engine.js sets window.Game, then we call init
-    const checkAndInit = () => {
-      if (typeof window !== 'undefined' && (window as any).Game) {
-        (window as any).Game.init();
+    // 1. Load Farcaster MiniApp SDK and get user context
+    const initSDK = async () => {
+      try {
+        // Dynamic import - browser only package
+        const mod = await import('@farcaster/miniapp-sdk');
+        const sdk = mod.sdk;
+        sdkRef.current = sdk;
+        
+        // Get context BEFORE calling ready
+        const ctx = await sdk.context;
+        console.log('[BN] SDK context:', JSON.stringify(ctx)?.substring(0, 500));
+        
+        if (ctx?.user?.fid) {
+          const user = ctx.user;
+          // Pass to Game engine (might not be loaded yet — retry)
+          const passUser = () => {
+            const g = (window as any).Game;
+            if (g && g.setFarcasterUser) {
+              g.setFarcasterUser({
+                fid: String(user.fid),
+                username: String(user.username || user.displayName || 'fid:' + user.fid),
+                pfpUrl: String(user.pfpUrl || ''),
+              });
+              console.log('[BN] Passed to Game:', user.username, 'FID:', user.fid);
+              return true;
+            }
+            return false;
+          };
+          if (!passUser()) {
+            const retry = setInterval(() => {
+              if (passUser()) clearInterval(retry);
+            }, 200);
+            setTimeout(() => clearInterval(retry), 5000);
+          }
+        } else {
+          console.log('[BN] No user in context');
+        }
+
+        // Signal to host app that we're ready (hides splash screen)
+        await sdk.actions.ready();
+        console.log('[BN] SDK ready() called');
+
+        // Bridge composeCast for Game's shareScore()
+        (window as any).__composeCast = async (text: string, embeds: string[]) => {
+          try {
+            await sdk.actions.composeCast({ text, embeds });
+          } catch (e) {
+            console.log('[BN] composeCast failed, copying to clipboard');
+            try {
+              await navigator.clipboard.writeText(text + '\n' + embeds.join(' '));
+              alert('Copied to clipboard!');
+            } catch {}
+          }
+        };
+      } catch (e) {
+        console.log('[BN] Not in MiniApp context:', e);
       }
     };
 
-    // If Game is already loaded (script loaded before React hydration)
-    checkAndInit();
+    initSDK();
 
-    // Also listen for the script load event
+    // 2. Init Game engine
     const interval = setInterval(() => {
-      if ((window as any).Game && (window as any).Game.canvas === null) {
-        (window as any).Game.init();
+      const g = (window as any).Game;
+      if (g && g.canvas === null) {
+        g.init();
         clearInterval(interval);
-      } else if ((window as any).Game && (window as any).Game.canvas !== null) {
+      } else if (g && g.canvas !== null) {
         clearInterval(interval);
       }
     }, 100);
@@ -33,12 +86,9 @@ export default function Home() {
     <>
       {/* Base Account SDK for payments */}
       <Script src="/base-account.min.js" strategy="beforeInteractive" />
-      {/* Farcaster MiniApp SDK for user context */}
-      <Script src="https://cdn.jsdelivr.net/npm/@farcaster/frame-sdk/dist/index.min.js" strategy="beforeInteractive" />
       {/* Game Engine Script */}
       <Script src="/game-engine.js" strategy="afterInteractive" />
 
-      {/* Exact same HTML structure as original index.html */}
       <div id="container">
         <canvas id="game"></canvas>
 
@@ -79,39 +129,30 @@ export default function Home() {
 
         <div id="shop" className="screen hidden">
           <div className="shop-title">CUSTOMIZE</div>
-
           <div className="shop-section">
             <div className="shop-label">BLADES</div>
             <div className="shop-items" id="bladeItems"></div>
             <button className="btn btn-secondary buy-all-btn" id="buyAllBladesBtn" onClick={() => (window as any).Game?.buyAllBlades()} style={{display:'none'}}>
-              Buy All Blades
-              <small id="bladesPrice">0 USDC</small>
+              Buy All Blades<small id="bladesPrice">0 USDC</small>
             </button>
           </div>
-
           <div className="shop-section">
             <div className="shop-label">BACKGROUNDS</div>
             <div className="shop-items" id="bgItems"></div>
             <button className="btn btn-secondary buy-all-btn" id="buyAllBgsBtn" onClick={() => (window as any).Game?.buyAllBackgrounds()} style={{display:'none'}}>
-              Buy All Backgrounds
-              <small id="bgsPrice">0 USDC</small>
+              Buy All Backgrounds<small id="bgsPrice">0 USDC</small>
             </button>
           </div>
-
           <button className="wallet-btn" id="walletBtn" onClick={() => (window as any).Game?.connectWallet()}>Connect Wallet</button>
           <div className="wallet-address" id="walletAddress"></div>
-
           <button className="btn btn-primary" id="buyEverythingBtn" onClick={() => (window as any).Game?.buyEverything()} style={{marginTop:'20px',display:'none'}}>
-            BUY EVERYTHING
-            <small id="totalPrice">0 USDC</small>
+            BUY EVERYTHING<small id="totalPrice">0 USDC</small>
           </button>
-
           <div className="buttons" style={{marginTop:'15px'}}>
             <button className="btn btn-secondary" onClick={() => { (window as any).Game?.playClickSound(); (window as any).Game?.hideShop(); }}>BACK</button>
           </div>
         </div>
 
-        {/* Wallet Selection Modal */}
         <div id="walletModal">
           <div className="wallet-modal-content" style={{position:'relative'}}>
             <button className="wallet-modal-close" onClick={() => (window as any).Game?.closeWalletModal()} style={{position:'absolute',top:'15px',right:'15px',background:'rgba(255,255,255,0.1)',border:'none',color:'#fff',width:'30px',height:'30px',borderRadius:'50%',cursor:'pointer',fontSize:'18px'}}>✕</button>
@@ -143,7 +184,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Purchase Modal */}
         <div id="purchaseModal">
           <div className="modal-content">
             <div className="modal-title">Unlock Item</div>
@@ -158,7 +198,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Leaderboard */}
         <div id="leaderboard" className="screen hidden">
           <div className="leaderboard-title">LEADERBOARD</div>
           <div className="leaderboard-subtitle">TOP 100 PLAYERS</div>
@@ -179,7 +218,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Submit Score Modal */}
         <div id="submitScoreModal">
           <div className="submit-modal-content">
             <div className="submit-title">NEW SCORE!</div>
@@ -194,7 +232,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Game Over */}
         <div id="gameover" className="screen hidden">
           <div className="go-title" id="goTitle">GAME OVER</div>
           <div className="go-label">FINAL SCORE</div>
