@@ -50,13 +50,13 @@ export default function Home() {
         console.log('[BN] SDK ready() called');
 
         // Bridge composeCast for Game's shareScore()
-        (window as any).__composeCast = async (text: string, embeds: string[]) => {
+        (window as any).__composeCast = async (text: string, embedUrl: string) => {
           try {
-            await sdk.actions.composeCast({ text, embeds });
+            await sdk.actions.composeCast({ text, embeds: [embedUrl] as [string] });
           } catch (e) {
             console.log('[BN] composeCast failed, copying to clipboard');
             try {
-              await navigator.clipboard.writeText(text + '\n' + embeds.join(' '));
+              await navigator.clipboard.writeText(text + '\n' + embedUrl);
               alert('Copied to clipboard!');
             } catch {}
           }
