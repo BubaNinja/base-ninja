@@ -22,10 +22,10 @@ const Game = {
     pendingPurchase: null,
     
     // Environment detection
-    isBaseApp: false, // true = Base App (Farcaster MiniApp), false = browser/web
+    // Post-migration: all users connect wallet, no more Farcaster SDK
     
-    // Farcaster / MiniKit identity (also used for web wallet users)
-    farcasterUser: null, // { fid, username, pfpUrl }
+    // Identity (wallet address based)
+    farcasterUser: null, // { fid: walletAddress, username: shortAddress, pfpUrl: '' }
     LEADERBOARD_API: '/api/leaderboard',
     
     // USDC ERC20 ABI (for direct transfers in web mode)
@@ -245,7 +245,7 @@ const Game = {
         this.loadPurchases(); // Load device-cached purchases (works without wallet)
         this.loop();
         
-        // Set device fallback immediately — React will overwrite with real user via setFarcasterUser()
+        // Set device fallback — wallet connection will overwrite with real address
         let deviceId = localStorage.getItem('baseninja_device_id');
         if (!deviceId) {
             deviceId = 'dev_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
@@ -259,58 +259,19 @@ const Game = {
         console.log('[BN] Device fallback set:', this.farcasterUser.username);
     },
     
-    // Called from React (page.tsx) when Farcaster SDK context is available
-    setFarcasterUser(user) {
-        if (user && user.fid) {
-            this.farcasterUser = {
-                fid: String(user.fid),
-                username: String(user.username || 'fid:' + user.fid),
-                pfpUrl: String(user.pfpUrl || ''),
-            };
-            console.log('[BN] setFarcasterUser:', this.farcasterUser.username, 'FID:', this.farcasterUser.fid);
-        }
-    },
-    
-    // Called from React (page.tsx) — sets Base App vs web browser mode
-    setIsBaseApp(val) {
-        this.isBaseApp = !!val;
-        console.log('[BN] isBaseApp:', this.isBaseApp);
-        // Update UI based on environment
-        this.updateShopForEnvironment();
-    },
-    
-    // When web user connects wallet, use wallet address as identity for leaderboard
-    setWebWalletIdentity() {
-        if (!this.isBaseApp && this.walletAddress) {
+    // Called when wallet connects — set wallet address as identity
+    setWalletIdentity() {
+        if (this.walletAddress) {
             const short = this.walletAddress.slice(0, 6) + '...' + this.walletAddress.slice(-4);
             this.farcasterUser = {
-                fid: this.walletAddress.toLowerCase(), // wallet address as ID
+                fid: this.walletAddress.toLowerCase(),
                 username: short,
                 pfpUrl: '',
             };
-            console.log('[BN] Web identity set:', short);
+            console.log('[BN] Wallet identity set:', short);
         }
     },
     
-    // Show/hide wallet button based on environment
-    updateShopForEnvironment() {
-        const walletBtn = document.getElementById('walletBtn');
-        const walletAddr = document.getElementById('walletAddress');
-        if (!walletBtn) return;
-        
-        if (this.isBaseApp) {
-            // Base App: hide wallet button — base.pay() handles everything
-            walletBtn.style.display = 'none';
-            walletAddr.style.display = 'none';
-        } else {
-            // Web: show wallet button — needed for USDC transfer
-            walletBtn.style.display = '';
-            walletAddr.style.display = '';
-        }
-    },
-    
-    
-    // SDK context is now handled by React (page.tsx) via setFarcasterUser()
     
     resize() {
         this.W = innerWidth; this.H = innerHeight;
@@ -1950,7 +1911,7 @@ const Game = {
             this.walletConnected = true;
             
             // For web users: set wallet address as leaderboard identity
-            this.setWebWalletIdentity();
+            this.setWalletIdentity();
             
             // Load saved purchases for this wallet
             this.loadPurchases();
@@ -1972,14 +1933,6 @@ const Game = {
         const btn = document.getElementById('walletBtn');
         const addrDiv = document.getElementById('walletAddress');
         const disconnectBtn = document.getElementById('disconnectBtn');
-        
-        // In Base App mode, wallet button not needed (base.pay handles it)
-        if (this.isBaseApp) {
-            btn.style.display = 'none';
-            addrDiv.style.display = 'none';
-            if (disconnectBtn) disconnectBtn.style.display = 'none';
-            return;
-        }
         
         if (this.walletConnected && this.walletAddress) {
             btn.textContent = 'Connected ✓';
@@ -2187,8 +2140,8 @@ const Game = {
         const buyBtn = document.getElementById('buyBtn');
         buyBtn.disabled = false;
         
-        // Web mode: show wallet warning if not connected
-        if (!this.isBaseApp && !this.walletConnected) {
+        // Show wallet warning if no payment method available
+        if (!this.walletConnected && !(typeof window.base !== 'undefined' && typeof window.base.pay === 'function')) {
             document.getElementById('modalStatus').textContent = '⚠️ Connect wallet first';
             buyBtn.textContent = 'Connect Wallet';
             buyBtn.onclick = () => { this.closePurchaseModal(); this.connectWallet(); };
@@ -2222,12 +2175,9 @@ const Game = {
                 ? this.pendingPurchase.totalPrice.toString()
                 : this.pendingPurchase.item.price.toString();
             
-            if (this.isBaseApp) {
-                // ========== BASE APP PATH: Use Base Pay SDK ==========
-                if (typeof window.base === 'undefined' || typeof window.base.pay !== 'function') {
-                    throw new Error('Base Pay SDK not loaded. Please refresh the page.');
-                }
-                
+            // Try Base Pay SDK first (works in Base App), fall back to direct USDC transfer
+            if (typeof window.base !== 'undefined' && typeof window.base.pay === 'function') {
+                // ========== BASE PAY PATH ==========
                 const payment = await window.base.pay({
                     amount,
                     to: this.RECEIVER_ADDRESS,
@@ -2237,7 +2187,7 @@ const Game = {
                 console.log('Base Pay successful:', payment);
                 
             } else {
-                // ========== WEB PATH: Direct USDC transfer on Base ==========
+                // ========== WALLET + USDC TRANSFER PATH ==========
                 if (!this.walletConnected || !this.signer) {
                     statusEl.textContent = 'Please connect your wallet first';
                     buyBtn.disabled = false;
@@ -2410,8 +2360,8 @@ const Game = {
         const buyBtn = document.getElementById('buyBtn');
         buyBtn.disabled = false;
         
-        // Web mode: show wallet warning if not connected
-        if (!this.isBaseApp && !this.walletConnected) {
+        // Show wallet warning if no payment method available
+        if (!this.walletConnected && !(typeof window.base !== 'undefined' && typeof window.base.pay === 'function')) {
             document.getElementById('modalStatus').textContent = '⚠️ Connect wallet first';
             buyBtn.textContent = 'Connect Wallet';
             buyBtn.onclick = () => { this.closePurchaseModal(); this.connectWallet(); };
@@ -2647,14 +2597,11 @@ const Game = {
         const gameUrl = 'https://base-ninja-game.vercel.app';
         
         try {
-            if (window.__composeCast) {
-                // Base App: Use Farcaster composeCast
-                await window.__composeCast(text, gameUrl);
-            } else if (navigator.share) {
-                // Web mobile: native share dialog
+            if (navigator.share) {
+                // Mobile: native share dialog
                 await navigator.share({ title: 'Base Ninja', text: text, url: gameUrl });
             } else {
-                // Web desktop: copy to clipboard
+                // Desktop: copy to clipboard
                 await navigator.clipboard.writeText(text + '\n' + gameUrl);
                 document.getElementById('submitStatus').textContent = 'Copied to clipboard!';
             }
