@@ -1,99 +1,12 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import Script from 'next/script';
 
 export default function Home() {
-  const sdkRef = useRef<any>(null);
 
   useEffect(() => {
-    let isBaseApp = false;
-
-    // 1. Try to load Farcaster MiniApp SDK and detect Base App
-    const initSDK = async () => {
-      try {
-        // Dynamic import - browser only package
-        const mod = await import('@farcaster/miniapp-sdk');
-        const sdk = mod.sdk;
-        sdkRef.current = sdk;
-        
-        // Get context BEFORE calling ready
-        const ctx = await sdk.context;
-        console.log('[BN] SDK context:', JSON.stringify(ctx)?.substring(0, 500));
-        
-        if (ctx?.user?.fid) {
-          isBaseApp = true;
-          const user = ctx.user;
-          // Pass to Game engine (might not be loaded yet — retry)
-          const passUser = () => {
-            const g = (window as any).Game;
-            if (g && g.setFarcasterUser) {
-              g.setIsBaseApp(true);
-              g.setFarcasterUser({
-                fid: String(user.fid),
-                username: String(user.username || user.displayName || 'fid:' + user.fid),
-                pfpUrl: String(user.pfpUrl || ''),
-              });
-              console.log('[BN] Passed to Game:', user.username, 'FID:', user.fid);
-              return true;
-            }
-            return false;
-          };
-          if (!passUser()) {
-            const retry = setInterval(() => {
-              if (passUser()) clearInterval(retry);
-            }, 200);
-            setTimeout(() => clearInterval(retry), 5000);
-          }
-        } else {
-          console.log('[BN] No user in context — web mode');
-          setWebMode();
-        }
-
-        // Signal to host app that we're ready (hides splash screen)
-        await sdk.actions.ready();
-        console.log('[BN] SDK ready() called');
-
-        // Bridge composeCast for Game's shareScore()
-        (window as any).__composeCast = async (text: string, embedUrl: string) => {
-          try {
-            await sdk.actions.composeCast({ text, embeds: [embedUrl] as [string] });
-          } catch (e) {
-            console.log('[BN] composeCast failed, copying to clipboard');
-            try {
-              await navigator.clipboard.writeText(text + '\n' + embedUrl);
-              alert('Copied to clipboard!');
-            } catch {}
-          }
-        };
-      } catch (e) {
-        console.log('[BN] Not in MiniApp context — web mode:', e);
-        setWebMode();
-      }
-    };
-
-    // 2. Set web mode (browser / non-Base App)
-    const setWebMode = () => {
-      const passWebMode = () => {
-        const g = (window as any).Game;
-        if (g && g.setIsBaseApp) {
-          g.setIsBaseApp(false);
-          console.log('[BN] Web mode activated — wallet connect for payments');
-          return true;
-        }
-        return false;
-      };
-      if (!passWebMode()) {
-        const retry = setInterval(() => {
-          if (passWebMode()) clearInterval(retry);
-        }, 200);
-        setTimeout(() => clearInterval(retry), 5000);
-      }
-    };
-
-    initSDK();
-
-    // 2. Init Game engine
+    // Init Game engine when loaded
     const interval = setInterval(() => {
       const g = (window as any).Game;
       if (g && g.canvas === null) {
@@ -109,7 +22,7 @@ export default function Home() {
 
   return (
     <>
-      {/* Base Account SDK for payments (Base App mode) */}
+      {/* Base Account SDK for payments */}
       <Script src="/base-account.min.js" strategy="beforeInteractive" />
       {/* Game Engine Script */}
       <Script src="/game-engine.js" strategy="afterInteractive" />
