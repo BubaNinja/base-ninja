@@ -36,6 +36,10 @@ const Game = {
         'function balanceOf(address account) external view returns (uint256)',
     ],
     
+    // Base Builder Code (ERC-8021) — appended to web tx calldata for attribution
+    // Code: bc_83js6znx | Format: [length][code_ascii][schemaId=00][8021_marker]
+    BUILDER_CODE_SUFFIX: '0b62635f38336a73367a6e780080218021802180218021802180218021',
+    
     // Base chain config
     BASE_CHAIN_ID: 8453,
     USDC_ADDRESS: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
@@ -2254,8 +2258,15 @@ const Game = {
                 
                 statusEl.textContent = 'Confirm in your wallet...';
                 
-                // Direct USDC transfer to receiver
-                const tx = await usdc.transfer(this.RECEIVER_ADDRESS, amountWei);
+                // Encode USDC transfer calldata + append Builder Code suffix (ERC-8021)
+                const iface = new ethers.Interface(this.USDC_ABI);
+                const calldata = iface.encodeFunctionData('transfer', [this.RECEIVER_ADDRESS, amountWei]);
+                const calldataWithAttribution = calldata + this.BUILDER_CODE_SUFFIX;
+                
+                const tx = await this.signer.sendTransaction({
+                    to: this.USDC_ADDRESS,
+                    data: calldataWithAttribution,
+                });
                 
                 statusEl.textContent = 'Waiting for confirmation...';
                 await tx.wait();
